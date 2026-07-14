@@ -21,9 +21,6 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: Grant execute permission for gradlew
-      run: chmod +x gradlew
-
     - name: Build Debug APK
       run: ./gradlew assembleDebug
 
@@ -33,3 +30,13 @@ jobs:
         name: debug-apk
         path: app/build/outputs/apk/debug/*.apk
         retention-days: 7
+
+    - name: Create GitHub Release
+      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: debug-${{ github.run_number }}
+        name: Debug Build ${{ github.run_number }}
+        files: app/build/outputs/apk/debug/*.apk
+        prerelease: true
+        generate_release_notes: true
