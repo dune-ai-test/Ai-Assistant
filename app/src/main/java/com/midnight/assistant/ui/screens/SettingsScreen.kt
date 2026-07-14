@@ -21,6 +21,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenu
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
@@ -180,21 +181,19 @@ fun SettingsScreen(
                                 .fillMaxWidth()
                                 .menuAnchor()
                         )
-                        ExposedDropdownMenuDefaults.let {
-                            androidx.compose.material3.ExposedDropdownMenu(
-                                expanded = modelMenuExpanded && settingsState.availableModels.isNotEmpty(),
-                                onDismissRequest = { modelMenuExpanded = false }
-                            ) {
-                                settingsState.availableModels.forEach { model ->
-                                    DropdownMenuItem(
-                                        text = { Text(model.displayName) },
-                                        onClick = {
-                                            modelId = model.id
-                                            modelName = model.displayName
-                                            modelMenuExpanded = false
-                                        }
-                                    )
-                                }
+                        ExposedDropdownMenu(
+                            expanded = modelMenuExpanded && settingsState.availableModels.isNotEmpty(),
+                            onDismissRequest = { modelMenuExpanded = false }
+                        ) {
+                            settingsState.availableModels.forEach { model ->
+                                DropdownMenuItem(
+                                    text = { Text(model.displayName) },
+                                    onClick = {
+                                        modelId = model.id
+                                        modelName = model.displayName
+                                        modelMenuExpanded = false
+                                    }
+                                )
                             }
                         }
                     }
