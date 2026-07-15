@@ -52,7 +52,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     companion object {
         /** Hard ceiling on a single listening session, in case the recognizer never
          *  finalizes on its own (flaky network, OEM quirks, etc). */
-        private const val MAX_LISTENING_MILLIS = 30_000L
+        private const val MAX_LISTENING_MILLIS = 20_000L
     }
 
     private val settingsStore = SettingsStore(application)
@@ -164,7 +164,16 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             listeningTimeoutJob = viewModelScope.launch {
                 delay(MAX_LISTENING_MILLIS)
                 if (_chatState.value.orbState == OrbState.LISTENING) {
+                    val pending = _chatState.value.liveTranscript.trim()
                     stopListening()
+                    if (pending.isEmpty()) {
+                        val message = "Didn't hear anything — check your microphone and internet connection, then try again."
+                        _chatState.value = _chatState.value.copy(
+                            orbState = OrbState.ERROR,
+                            statusText = message,
+                            errorText = message
+                        )
+                    }
                 }
             }
         } catch (t: Throwable) {

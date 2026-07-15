@@ -4,6 +4,8 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -22,6 +24,13 @@ import java.util.Locale
  * wrapped in try/catch, every recognizer call is guarded, and everything is forced onto
  * the main thread (SpeechRecognizer is not thread-safe and must be driven from a Looper
  * thread).
+ *
+ * Note: this deliberately does NOT set EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS or
+ * similar timing extras. Several OEM recognition services mishandle those and simply never
+ * call back at all (the session looks permanently "Listening…" with no result and no
+ * error) instead of rejecting them cleanly. Stick to the extras every recognizer is
+ * guaranteed to honor, and let ChatViewModel's stop-to-send + safety timeout handle
+ * finalization instead.
  */
 class SpeechRecognizerManager(private val context: Context) {
 
@@ -49,6 +58,19 @@ class SpeechRecognizerManager(private val context: Context) {
         Manifest.permission.RECORD_AUDIO
     ) == PackageManager.PERMISSION_GRANTED
 
+    /** Most on-device recognizers (esp. the default Google one when no offline language
+     *  pack is installed) need network access — without it a session can sit at
+     *  "Listening…" forever instead of erroring. Surface that up front instead of hanging. */
+    private fun hasNetworkConnection(): Boolean = try {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        val network = cm?.activeNetwork
+        val capabilities = network?.let { cm.getNetworkCapabilities(it) }
+        capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+    } catch (t: Throwable) {
+        // If we can't tell, don't block the user over it — let the recognizer itself decide.
+        true
+    }
+
     fun startListening() {
         if (!hasMicPermission()) {
             safeError("Microphone permission is required.")
@@ -56,6 +78,10 @@ class SpeechRecognizerManager(private val context: Context) {
         }
         if (!isAvailable()) {
             safeError("Speech recognition isn't available on this device.")
+            return
+        }
+        if (!hasNetworkConnection()) {
+            safeError("No internet connection — voice recognition needs network access on this device.")
             return
         }
         if (isSessionActive) {
@@ -74,14 +100,10 @@ class SpeechRecognizerManager(private val context: Context) {
 
                 val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toString())
                     putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                     putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
-                    // Finalize sooner after the user stops talking, so a real reply isn't
-                    // stuck waiting on the platform default (multi-second) silence window.
-                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1200)
-                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1200)
-                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 15000)
+                    putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
                 }
 
                 isSessionActive = true
