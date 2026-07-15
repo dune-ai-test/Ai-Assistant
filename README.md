@@ -38,6 +38,20 @@ Nothing is hardcoded: the API key, base URL, model ID, and system prompt all liv
 `DataStore` (`data/SettingsStore.kt`) so they persist across app restarts and never touch
 source control.
 
+## Conversation history & persistence
+- **Typed preview**: a text field sits next to the mic button so you can see exactly what
+  you're typing before sending, in addition to the live partial-transcript preview shown
+  above the orb while you talk.
+- **Every message is saved**: each exchange is written to disk (`data/ChatHistoryStore.kt`,
+  plain JSON files under the app's private storage — nothing leaves the device except the
+  text sent to Kilo Gateway) as soon as it happens, so nothing is lost if the app is closed
+  or killed.
+- **One conversation at a time**: all voice or typed messages keep appending to the same
+  open conversation. Tapping the history icon (top bar) takes you to a list of past
+  conversations — tap one to switch to it. Tapping "New conversation" (the refresh icon) is
+  the *only* action that starts a fresh, empty thread; everything else stays in the
+  conversation you're currently in, even across app restarts.
+
 ## Voice pipeline
 - **Speech-to-text**: `speech/SpeechRecognizerManager.kt` wraps Android's built-in
   `SpeechRecognizer` (on-device where supported). `RECORD_AUDIO` is requested at runtime
@@ -77,19 +91,20 @@ app/src/main/java/com/midnight/assistant/
 ├── AssistantApp.kt              Application class
 ├── data/
 │   ├── SettingsStore.kt         DataStore-backed settings (API key, base URL, model…)
-│   ├── ChatModels.kt            ChatMessage / GatewayModel / GatewayResult
+│   ├── ChatModels.kt            ChatMessage / GatewayModel / ChatSessionMeta / GatewayResult
+│   ├── ChatHistoryStore.kt      File-based persistence for conversations (sessions + messages)
 │   └── KiloGatewayClient.kt     OkHttp client for Kilo Gateway (models + chat completions)
 ├── speech/
 │   ├── SpeechRecognizerManager.kt   Android SpeechRecognizer wrapper
 │   └── TextToSpeechManager.kt       Android TextToSpeech wrapper
 ├── viewmodel/
-│   └── ChatViewModel.kt         Conversation + settings state, orchestrates STT/API/TTS
+│   └── ChatViewModel.kt         Conversation + settings + history state, orchestrates STT/API/TTS
 ├── navigation/
-│   └── AppNav.kt                Chat ⇄ Settings navigation graph
+│   └── AppNav.kt                Chat ⇄ Settings ⇄ History navigation graph
 └── ui/
     ├── theme/                   Color.kt, Type.kt, Shape.kt, Theme.kt (design.md tokens)
     ├── components/               AiOrb.kt, GlassCard.kt, MessageBubble.kt
-    └── screens/                  ChatScreen.kt, SettingsScreen.kt
+    └── screens/                  ChatScreen.kt, SettingsScreen.kt, HistoryScreen.kt
 ```
 
 ## Permissions

@@ -15,6 +15,15 @@ data class GatewayModel(
     val contextWindow: Int? = null
 )
 
+data class ChatSessionMeta(
+    val id: String,
+    val title: String,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val messageCount: Int,
+    val preview: String
+)
+
 sealed class GatewayResult<out T> {
     data class Success<T>(val value: T) : GatewayResult<T>()
     data class Failure(val message: String) : GatewayResult<Nothing>()

@@ -4,7 +4,9 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.midnight.assistant.data.AssistantSettings
+import com.midnight.assistant.data.ChatHistoryStore
 import com.midnight.assistant.data.ChatMessage
+import com.midnight.assistant.data.ChatSessionMeta
 import com.midnight.assistant.data.GatewayModel
 import com.midnight.assistant.data.GatewayResult
 import com.midnight.assistant.data.KiloGatewayClient
@@ -38,12 +40,18 @@ data class SettingsUiState(
     val isTesting: Boolean = false
 )
 
+data class HistoryUiState(
+    val sessions: List<ChatSessionMeta> = emptyList(),
+    val isLoading: Boolean = false
+)
+
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private val settingsStore = SettingsStore(application)
     private val gatewayClient = KiloGatewayClient()
     private val speechRecognizer = SpeechRecognizerManager(application)
     private val textToSpeech = TextToSpeechManager(application)
+    private val historyStore = ChatHistoryStore(application)
 
     private val _chatState = MutableStateFlow(ChatUiState())
     val chatState: StateFlow<ChatUiState> = _chatState.asStateFlow()
@@ -51,13 +59,29 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val _settingsState = MutableStateFlow(SettingsUiState())
     val settingsState: StateFlow<SettingsUiState> = _settingsState.asStateFlow()
 
+    private val _historyState = MutableStateFlow(HistoryUiState())
+    val historyState: StateFlow<HistoryUiState> = _historyState.asStateFlow()
+
     private var currentSettings = AssistantSettings()
+
+    /** The conversation currently open on the Chat screen. Every voice/typed exchange
+     *  keeps appending here until [startNewConversation] or [openSession] is called. */
+    private var currentSessionId: String? = null
 
     init {
         viewModelScope.launch {
             settingsStore.settingsFlow.collect { settings ->
                 currentSettings = settings
                 _settingsState.value = _settingsState.value.copy(settings = settings)
+            }
+        }
+
+        viewModelScope.launch {
+            val sessionId = historyStore.getOrCreateCurrentSessionId()
+            currentSessionId = sessionId
+            val savedMessages = historyStore.loadMessages(sessionId)
+            if (savedMessages.isNotEmpty()) {
+                _chatState.value = _chatState.value.copy(messages = savedMessages)
             }
         }
 
@@ -134,6 +158,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             statusText = "Thinking…",
             errorText = null
         )
+        persistCurrentSession(updatedHistory)
 
         viewModelScope.launch {
             val result = gatewayClient.sendChat(
@@ -147,11 +172,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             when (result) {
                 is GatewayResult.Success -> {
                     val assistantMessage = ChatMessage(role = Role.ASSISTANT, text = result.value)
+                    val finalHistory = _chatState.value.messages + assistantMessage
                     _chatState.value = _chatState.value.copy(
-                        messages = _chatState.value.messages + assistantMessage,
+                        messages = finalHistory,
                         orbState = if (currentSettings.autoSpeak) OrbState.SPEAKING else OrbState.IDLE,
                         statusText = if (currentSettings.autoSpeak) "Speaking…" else "Tap the orb and start talking"
                     )
+                    persistCurrentSession(finalHistory)
                     if (currentSettings.autoSpeak) {
                         textToSpeech.speak(result.value)
                     }
@@ -167,8 +194,43 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun clearConversation() {
-        _chatState.value = _chatState.value.copy(messages = emptyList(), errorText = null)
+    private fun persistCurrentSession(messages: List<ChatMessage>) {
+        val sessionId = currentSessionId ?: return
+        viewModelScope.launch { historyStore.saveMessages(sessionId, messages) }
+    }
+
+    /** Explicit "new conversation" action — the ONLY way a fresh, empty thread starts.
+     *  Everything else (voice or typed) keeps appending to the current session. */
+    fun startNewConversation() {
+        viewModelScope.launch {
+            val newId = historyStore.startNewSession()
+            currentSessionId = newId
+            _chatState.value = ChatUiState()
+        }
+    }
+
+    fun openSession(sessionId: String) {
+        viewModelScope.launch {
+            historyStore.setCurrentSession(sessionId)
+            currentSessionId = sessionId
+            val messages = historyStore.loadMessages(sessionId)
+            _chatState.value = ChatUiState(messages = messages)
+        }
+    }
+
+    fun refreshHistory() {
+        viewModelScope.launch {
+            _historyState.value = _historyState.value.copy(isLoading = true)
+            val sessions = historyStore.listSessions()
+            _historyState.value = HistoryUiState(sessions = sessions, isLoading = false)
+        }
+    }
+
+    fun deleteSession(sessionId: String) {
+        viewModelScope.launch {
+            historyStore.deleteSession(sessionId)
+            refreshHistory()
+        }
     }
 
     fun dismissError() {
