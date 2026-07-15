@@ -21,6 +21,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
@@ -54,8 +56,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.midnight.assistant.ui.components.AiOrb
+import com.midnight.assistant.ui.components.GlassCard
 import com.midnight.assistant.ui.components.MessageBubble
 import com.midnight.assistant.ui.theme.MidnightColors
+import com.midnight.assistant.ui.theme.MidnightRadius
 import com.midnight.assistant.ui.theme.MidnightSpacing
 import com.midnight.assistant.viewmodel.ChatViewModel
 import com.midnight.assistant.viewmodel.OrbState
@@ -144,6 +148,47 @@ fun ChatScreen(
                 .padding(padding)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
+                // Error banner — surfaced clearly instead of only as small status text,
+                // so a failed/silent voice turn is obvious rather than looking "stuck".
+                state.errorText?.let { error ->
+                    GlassCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = MidnightSpacing.marginMobile, vertical = MidnightSpacing.stackSm),
+                        cornerRadius = MidnightRadius.md1,
+                        contentPadding = 12.dp
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Filled.ErrorOutline,
+                                    contentDescription = null,
+                                    tint = MidnightColors.error,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    error,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MidnightColors.onSurface,
+                                    modifier = Modifier.padding(start = 8.dp)
+                                )
+                            }
+                            IconButton(onClick = { viewModel.dismissError() }, modifier = Modifier.size(28.dp)) {
+                                Icon(
+                                    Icons.Filled.Close,
+                                    contentDescription = "Dismiss",
+                                    tint = MidnightColors.onSurfaceVariant,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
                 // Conversation transcript — every message in the current session lives here;
                 // switch conversations from the history screen (top-bar clock icon).
                 LazyColumn(

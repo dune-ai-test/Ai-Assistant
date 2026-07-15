@@ -135,12 +135,24 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             )
             return
         }
-        textToSpeech.stop()
-        speechRecognizer.startListening()
+        try {
+            textToSpeech.stop()
+            speechRecognizer.startListening()
+        } catch (t: Throwable) {
+            _chatState.value = _chatState.value.copy(
+                orbState = OrbState.ERROR,
+                statusText = t.message ?: "Couldn't start the microphone.",
+                errorText = t.message ?: "Couldn't start the microphone."
+            )
+        }
     }
 
     fun stopListening() {
-        speechRecognizer.stopListening()
+        try {
+            speechRecognizer.stopListening()
+        } catch (t: Throwable) {
+            // Ignore — we're resetting to IDLE regardless.
+        }
         _chatState.value = _chatState.value.copy(orbState = OrbState.IDLE, statusText = "Tap the orb and start talking")
     }
 
