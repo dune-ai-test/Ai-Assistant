@@ -97,6 +97,21 @@ fun ChatScreen(
         }
     }
 
+    // While listening, mirror the live partial transcript into the "Type a message" field
+    // instead of a separate large preview — it shows small and inline, right where it'll send from.
+    LaunchedEffect(state.liveTranscript, state.orbState) {
+        if (state.orbState == OrbState.LISTENING) {
+            typedText = state.liveTranscript
+        }
+    }
+
+    // Once a message is actually sent (voice or typed), clear the input.
+    LaunchedEffect(state.orbState) {
+        if (state.orbState == OrbState.THINKING) {
+            typedText = ""
+        }
+    }
+
     fun sendTyped() {
         val text = typedText.trim()
         if (text.isNotEmpty()) {
@@ -214,15 +229,6 @@ fun ChatScreen(
                         .padding(bottom = MidnightSpacing.stackMd),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    if (state.liveTranscript.isNotBlank()) {
-                        Text(
-                            text = state.liveTranscript,
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MidnightColors.onSurface,
-                            modifier = Modifier.padding(horizontal = 32.dp, vertical = 8.dp)
-                        )
-                    }
-
                     AiOrb(
                         state = state.orbState,
                         micLevel = state.micLevel,
@@ -239,8 +245,9 @@ fun ChatScreen(
 
                     Spacer(modifier = Modifier.height(MidnightSpacing.stackMd))
 
-                    // Typed-message row — shows a live preview of what's being typed,
-                    // and doubles as a fallback input alongside voice.
+                    // Typed-message row — while listening, this mirrors the live transcript
+                    // (small, inline) instead of a separate large preview; tapping the mic
+                    // again stops listening AND sends whatever's in the field.
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -248,21 +255,27 @@ fun ChatScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(MidnightSpacing.stackSm)
                     ) {
+                        val micActive = state.orbState == OrbState.LISTENING
+
                         OutlinedTextField(
                             value = typedText,
                             onValueChange = { typedText = it },
                             modifier = Modifier.weight(1f),
-                            placeholder = { Text("Type a message…") },
+                            placeholder = { Text(if (micActive) "Listening…" else "Type a message…") },
+                            readOnly = micActive,
                             singleLine = true,
                             shape = MaterialTheme.shapes.large,
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                             keyboardActions = KeyboardActions(onSend = { sendTyped() }),
                             trailingIcon = {
-                                IconButton(onClick = { sendTyped() }, enabled = typedText.isNotBlank()) {
+                                IconButton(
+                                    onClick = { if (micActive) viewModel.stopListening() else sendTyped() },
+                                    enabled = micActive || typedText.isNotBlank()
+                                ) {
                                     Icon(
                                         Icons.Filled.Send,
                                         contentDescription = "Send",
-                                        tint = if (typedText.isNotBlank()) MidnightColors.tertiary else MidnightColors.onSurfaceVariant
+                                        tint = if (micActive || typedText.isNotBlank()) MidnightColors.tertiary else MidnightColors.onSurfaceVariant
                                     )
                                 }
                             },
@@ -279,7 +292,6 @@ fun ChatScreen(
                             )
                         )
 
-                        val micActive = state.orbState == OrbState.LISTENING
                         Box(
                             modifier = Modifier
                                 .size(56.dp)
@@ -307,7 +319,7 @@ fun ChatScreen(
                             ) {
                                 Icon(
                                     imageVector = if (micActive) Icons.Filled.MicOff else Icons.Filled.Mic,
-                                    contentDescription = if (micActive) "Stop listening" else "Start listening",
+                                    contentDescription = if (micActive) "Stop listening and send" else "Start listening",
                                     tint = MidnightColors.onPrimary,
                                     modifier = Modifier.size(24.dp)
                                 )

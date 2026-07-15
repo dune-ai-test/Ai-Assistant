@@ -39,9 +39,11 @@ Nothing is hardcoded: the API key, base URL, model ID, and system prompt all liv
 source control.
 
 ## Conversation history & persistence
-- **Typed preview**: a text field sits next to the mic button so you can see exactly what
-  you're typing before sending, in addition to the live partial-transcript preview shown
-  above the orb while you talk.
+- **Typed preview**: while listening, the live transcript streams directly into the "Type
+  a message" field (small, inline) instead of a separate large preview above the orb.
+  Tapping the mic again **stops listening and immediately sends** whatever's in the field
+  — no need to wait for silence-based auto-finalization. A 30s safety timeout also
+  auto-stops (and sends) if a session somehow never finalizes on its own.
 - **Every message is saved**: each exchange is written to disk (`data/ChatHistoryStore.kt`,
   plain JSON files under the app's private storage — nothing leaves the device except the
   text sent to Kilo Gateway) as soon as it happens, so nothing is lost if the app is closed
@@ -51,6 +53,10 @@ source control.
   conversations — tap one to switch to it. Tapping "New conversation" (the refresh icon) is
   the *only* action that starts a fresh, empty thread; everything else stays in the
   conversation you're currently in, even across app restarts.
+- **Model list is cached**: the model dropdown in Settings shows whatever was fetched last
+  time immediately (persisted via DataStore) — opening Settings never re-hits the network
+  on its own. Only an explicit tap on "Fetch available models" replaces the cached list.
+  The dropdown also has a built-in search field to filter a long model catalog by name or id.
 
 ## Voice pipeline
 - **Speech-to-text**: `speech/SpeechRecognizerManager.kt` wraps Android's built-in

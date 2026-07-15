@@ -13,7 +13,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
@@ -36,7 +38,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -69,11 +70,17 @@ fun SettingsScreen(
     var modelName by remember(settingsState.settings.modelDisplayName) { mutableStateOf(settingsState.settings.modelDisplayName) }
     var showKey by remember { mutableStateOf(false) }
     var modelMenuExpanded by remember { mutableStateOf(false) }
+    var modelSearchQuery by remember { mutableStateOf("") }
     var autoSpeak by remember(settingsState.settings.autoSpeak) { mutableStateOf(settingsState.settings.autoSpeak) }
 
-    LaunchedEffect(Unit) {
-        if (settingsState.settings.apiKey.isNotBlank()) {
-            viewModel.fetchModels()
+    val filteredModels = remember(settingsState.availableModels, modelSearchQuery) {
+        if (modelSearchQuery.isBlank()) {
+            settingsState.availableModels
+        } else {
+            settingsState.availableModels.filter {
+                it.displayName.contains(modelSearchQuery, ignoreCase = true) ||
+                    it.id.contains(modelSearchQuery, ignoreCase = true)
+            }
         }
     }
 
@@ -184,15 +191,50 @@ fun SettingsScreen(
                             expanded = modelMenuExpanded && settingsState.availableModels.isNotEmpty(),
                             onDismissRequest = { modelMenuExpanded = false }
                         ) {
-                            settingsState.availableModels.forEach { model ->
-                                DropdownMenuItem(
-                                    text = { Text(model.displayName) },
-                                    onClick = {
-                                        modelId = model.id
-                                        modelName = model.displayName
-                                        modelMenuExpanded = false
+                            OutlinedTextField(
+                                value = modelSearchQuery,
+                                onValueChange = { modelSearchQuery = it },
+                                placeholder = { Text("Search models…") },
+                                singleLine = true,
+                                leadingIcon = {
+                                    Icon(Icons.Filled.Search, contentDescription = null, tint = MidnightColors.onSurfaceVariant)
+                                },
+                                trailingIcon = {
+                                    if (modelSearchQuery.isNotEmpty()) {
+                                        IconButton(onClick = { modelSearchQuery = "" }) {
+                                            Icon(Icons.Filled.Close, contentDescription = "Clear search", tint = MidnightColors.onSurfaceVariant)
+                                        }
                                     }
+                                },
+                                colors = midnightFieldColors(),
+                                shape = MaterialTheme.shapes.small,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                            )
+                            if (filteredModels.isEmpty()) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            "No models match “$modelSearchQuery”",
+                                            color = MidnightColors.onSurfaceVariant
+                                        )
+                                    },
+                                    onClick = {},
+                                    enabled = false
                                 )
+                            } else {
+                                filteredModels.forEach { model ->
+                                    DropdownMenuItem(
+                                        text = { Text(model.displayName) },
+                                        onClick = {
+                                            modelId = model.id
+                                            modelName = model.displayName
+                                            modelMenuExpanded = false
+                                            modelSearchQuery = ""
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
@@ -207,6 +249,13 @@ fun SettingsScreen(
                             } else {
                                 Text("Fetch available models", color = MidnightColors.tertiary)
                             }
+                        }
+                        if (settingsState.availableModels.isNotEmpty() && !settingsState.isLoadingModels) {
+                            Text(
+                                "${settingsState.availableModels.size} cached",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MidnightColors.onSurfaceVariant
+                            )
                         }
                     }
                     settingsState.modelLoadError?.let {

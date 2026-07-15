@@ -18,6 +18,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 enum class OrbState { IDLE, LISTENING, THINKING, SPEAKING, ERROR }
@@ -47,6 +49,12 @@ data class HistoryUiState(
 
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
+    companion object {
+        /** Hard ceiling on a single listening session, in case the recognizer never
+         *  finalizes on its own (flaky network, OEM quirks, etc). */
+        private const val MAX_LISTENING_MILLIS = 30_000L
+    }
+
     private val settingsStore = SettingsStore(application)
     private val gatewayClient = KiloGatewayClient()
     private val speechRecognizer = SpeechRecognizerManager(application)
@@ -68,11 +76,23 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
      *  keeps appending here until [startNewConversation] or [openSession] is called. */
     private var currentSessionId: String? = null
 
+    /** Safety net so a stuck/never-finalizing recognizer session can't listen forever. */
+    private var listeningTimeoutJob: Job? = null
+
     init {
         viewModelScope.launch {
             settingsStore.settingsFlow.collect { settings ->
                 currentSettings = settings
                 _settingsState.value = _settingsState.value.copy(settings = settings)
+            }
+        }
+
+        // Show whatever models were fetched last time immediately — no network round trip
+        // needed just to open Settings. A fresh "Fetch" click is the only thing that updates it.
+        viewModelScope.launch {
+            val cached = settingsStore.loadCachedModels()
+            if (cached.isNotEmpty()) {
+                _settingsState.value = _settingsState.value.copy(availableModels = cached)
             }
         }
 
@@ -104,11 +124,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             sendUserMessage(finalText)
         }
         speechRecognizer.onListeningStopped = {
+            cancelListeningTimeout()
             if (_chatState.value.orbState == OrbState.LISTENING) {
                 _chatState.value = _chatState.value.copy(orbState = OrbState.IDLE, statusText = "Tap the orb and start talking")
             }
         }
         speechRecognizer.onError = { message ->
+            cancelListeningTimeout()
             _chatState.value = _chatState.value.copy(
                 orbState = OrbState.ERROR,
                 statusText = message,
@@ -138,6 +160,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         try {
             textToSpeech.stop()
             speechRecognizer.startListening()
+            cancelListeningTimeout()
+            listeningTimeoutJob = viewModelScope.launch {
+                delay(MAX_LISTENING_MILLIS)
+                if (_chatState.value.orbState == OrbState.LISTENING) {
+                    stopListening()
+                }
+            }
         } catch (t: Throwable) {
             _chatState.value = _chatState.value.copy(
                 orbState = OrbState.ERROR,
@@ -147,13 +176,29 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Tapping the mic again while listening stops the recognizer AND sends whatever was
+     *  transcribed so far — no need to wait for silence-based auto-finalization. */
     fun stopListening() {
+        cancelListeningTimeout()
+        val pendingTranscript = _chatState.value.liveTranscript.trim()
         try {
             speechRecognizer.stopListening()
         } catch (t: Throwable) {
             // Ignore — we're resetting to IDLE regardless.
         }
-        _chatState.value = _chatState.value.copy(orbState = OrbState.IDLE, statusText = "Tap the orb and start talking")
+        _chatState.value = _chatState.value.copy(
+            orbState = OrbState.IDLE,
+            statusText = "Tap the orb and start talking",
+            liveTranscript = ""
+        )
+        if (pendingTranscript.isNotEmpty()) {
+            sendUserMessage(pendingTranscript)
+        }
+    }
+
+    private fun cancelListeningTimeout() {
+        listeningTimeoutJob?.cancel()
+        listeningTimeoutJob = null
     }
 
     fun sendTypedMessage(text: String) {
@@ -280,6 +325,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         availableModels = result.value,
                         modelLoadError = if (result.value.isEmpty()) "No models returned." else null
                     )
+                    if (result.value.isNotEmpty()) {
+                        settingsStore.saveCachedModels(result.value)
+                    }
                 }
                 is GatewayResult.Failure -> {
                     _settingsState.value = _settingsState.value.copy(

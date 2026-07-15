@@ -5,7 +5,10 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import org.json.JSONArray
+import org.json.JSONObject
 
 private val Context.dataStore by preferencesDataStore(name = "midnight_assistant_settings")
 
@@ -33,6 +36,7 @@ class SettingsStore(private val context: Context) {
         val MODEL_NAME = stringPreferencesKey("model_name")
         val AUTO_SPEAK = stringPreferencesKey("auto_speak")
         val SYSTEM_PROMPT = stringPreferencesKey("system_prompt")
+        val CACHED_MODELS = stringPreferencesKey("cached_models_json")
     }
 
     val settingsFlow: Flow<AssistantSettings> = context.dataStore.data.map { prefs ->
@@ -68,5 +72,39 @@ class SettingsStore(private val context: Context) {
 
     suspend fun saveSystemPrompt(prompt: String) {
         context.dataStore.edit { it[Keys.SYSTEM_PROMPT] = prompt }
+    }
+
+    /** Persists the last-fetched model list so Settings shows it immediately on next open,
+     *  without re-hitting the network — only an explicit "Fetch" click replaces it. */
+    suspend fun saveCachedModels(models: List<GatewayModel>) {
+        val array = JSONArray()
+        models.forEach { model ->
+            array.put(
+                JSONObject().apply {
+                    put("id", model.id)
+                    put("name", model.displayName)
+                    if (model.contextWindow != null) put("contextWindow", model.contextWindow)
+                }
+            )
+        }
+        context.dataStore.edit { it[Keys.CACHED_MODELS] = array.toString() }
+    }
+
+    suspend fun loadCachedModels(): List<GatewayModel> {
+        val raw = context.dataStore.data.first()[Keys.CACHED_MODELS] ?: return emptyList()
+        return try {
+            val array = JSONArray(raw)
+            (0 until array.length()).mapNotNull { i ->
+                val obj = array.optJSONObject(i) ?: return@mapNotNull null
+                val id = obj.optString("id").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                GatewayModel(
+                    id = id,
+                    displayName = obj.optString("name", id),
+                    contextWindow = obj.optInt("contextWindow", -1).takeIf { it > 0 }
+                )
+            }
+        } catch (t: Throwable) {
+            emptyList()
+        }
     }
 }
