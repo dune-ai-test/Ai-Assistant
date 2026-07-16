@@ -21,17 +21,29 @@ import com.midnight.assistant.viewmodel.OrbState
 import kotlin.math.min
 
 /**
- * "AI Orbs & Visualizers": a fluid, animated gradient sphere that reacts to voice
- * frequency, with a soft ambient glow bleeding into the Midnight background.
+ * "AI Orbs & Visualizers": a fluid, animated gradient sphere with a soft ambient glow
+ * bleeding into the Midnight background. Voice capture now happens in the system's own
+ * speech-input dialog (more reliable across devices), so there's no live rms stream to
+ * react to — [micLevel] defaults to a gentle synthetic pulse while LISTENING instead.
  */
 @Composable
 fun AiOrb(
     state: OrbState,
-    micLevel: Float,
     modifier: Modifier = Modifier,
+    micLevel: Float = 0f,
     baseSize: androidx.compose.ui.unit.Dp = 220.dp
 ) {
     val infinite = rememberInfiniteTransition(label = "orb")
+
+    val listeningPulse by infinite.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(700, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "listeningPulse"
+    )
 
     val breathing by infinite.animateFloat(
         initialValue = 0.94f,
@@ -61,7 +73,12 @@ fun AiOrb(
         OrbState.ERROR -> Triple(MidnightColors.error, MidnightColors.errorContainer, MidnightColors.error)
     }
 
-    val reactiveScale = breathing + (micLevel.coerceIn(0f, 1f) * 0.12f)
+    val effectiveLevel = if (state == OrbState.LISTENING) {
+        maxOf(micLevel.coerceIn(0f, 1f), listeningPulse * 0.6f)
+    } else {
+        micLevel.coerceIn(0f, 1f)
+    }
+    val reactiveScale = breathing + (effectiveLevel * 0.12f)
 
     Canvas(modifier = modifier.size(baseSize)) {
         val diameter = min(size.width, size.height)

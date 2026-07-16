@@ -39,11 +39,9 @@ Nothing is hardcoded: the API key, base URL, model ID, and system prompt all liv
 source control.
 
 ## Conversation history & persistence
-- **Typed preview**: while listening, the live transcript streams directly into the "Type
-  a message" field (small, inline) instead of a separate large preview above the orb.
-  Tapping the mic again **stops listening and immediately sends** whatever's in the field
-  — no need to wait for silence-based auto-finalization. A 30s safety timeout also
-  auto-stops (and sends) if a session somehow never finalizes on its own.
+- **Voice input**: tapping the mic opens the system voice-input dialog; whatever it
+  transcribes is sent automatically the moment it returns. Typing in the message field
+  works identically any time as a fallback/alternative.
 - **Every message is saved**: each exchange is written to disk (`data/ChatHistoryStore.kt`,
   plain JSON files under the app's private storage — nothing leaves the device except the
   text sent to Kilo Gateway) as soon as it happens, so nothing is lost if the app is closed
@@ -59,13 +57,23 @@ source control.
   The dropdown also has a built-in search field to filter a long model catalog by name or id.
 
 ## Voice pipeline
-- **Speech-to-text**: `speech/SpeechRecognizerManager.kt` wraps Android's built-in
-  `SpeechRecognizer` (on-device where supported). `RECORD_AUDIO` is requested at runtime
-  from `ChatScreen`.
+- **Speech-to-text**: `ChatScreen.kt` launches the **system's own voice-input dialog**
+  (`RecognizerIntent.ACTION_RECOGNIZE_SPEECH` via `ActivityResultContracts.StartActivityForResult`)
+  — the same mechanism behind the mic icon in Google Search / Gboard. An earlier version of
+  this app drove a raw `SpeechRecognizer` binder connection directly; that API is known to
+  hang silently ("Listening…" forever, no result, no error) on a lot of OEM builds. The
+  system dialog is dramatically more reliable since it's the exact code path already
+  exercised by every voice-typing feature on the device. `RECORD_AUDIO` is still requested
+  at runtime since some OEM recognizers check the calling app's permission too.
 - **Text-to-speech**: `speech/TextToSpeechManager.kt` wraps `android.speech.tts.TextToSpeech`
   and speaks each assistant reply when "Speak replies aloud" is enabled in Settings.
 - **Orchestration**: `viewmodel/ChatViewModel.kt` owns the conversation state machine
-  (idle → listening → thinking → speaking) and both managers.
+  (idle → listening → thinking → speaking) and exposes a small callback surface
+  (`onVoiceCaptureStarted/Result/Cancelled/Error`) that `ChatScreen` reports into once the
+  system dialog returns.
+- If no voice-input app is available on the device at all (rare — basically requires no
+  Google app or any other assistant installed), tapping the mic shows a clear error instead
+  of doing nothing.
 
 ## Design system mapping (design.md → code)
 | design.md | Implementation |
@@ -101,7 +109,6 @@ app/src/main/java/com/midnight/assistant/
 │   ├── ChatHistoryStore.kt      File-based persistence for conversations (sessions + messages)
 │   └── KiloGatewayClient.kt     OkHttp client for Kilo Gateway (models + chat completions)
 ├── speech/
-│   ├── SpeechRecognizerManager.kt   Android SpeechRecognizer wrapper
 │   └── TextToSpeechManager.kt       Android TextToSpeech wrapper
 ├── viewmodel/
 │   └── ChatViewModel.kt         Conversation + settings + history state, orchestrates STT/API/TTS

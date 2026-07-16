@@ -12,14 +12,11 @@ import com.midnight.assistant.data.GatewayResult
 import com.midnight.assistant.data.KiloGatewayClient
 import com.midnight.assistant.data.Role
 import com.midnight.assistant.data.SettingsStore
-import com.midnight.assistant.speech.SpeechRecognizerManager
 import com.midnight.assistant.speech.TextToSpeechManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 enum class OrbState { IDLE, LISTENING, THINKING, SPEAKING, ERROR }
@@ -27,9 +24,7 @@ enum class OrbState { IDLE, LISTENING, THINKING, SPEAKING, ERROR }
 data class ChatUiState(
     val messages: List<ChatMessage> = emptyList(),
     val orbState: OrbState = OrbState.IDLE,
-    val liveTranscript: String = "",
     val statusText: String = "Tap the orb and start talking",
-    val micLevel: Float = 0f,
     val errorText: String? = null
 )
 
@@ -47,17 +42,19 @@ data class HistoryUiState(
     val isLoading: Boolean = false
 )
 
+/**
+ * Voice capture is driven from the UI layer via the system's speech-recognition activity
+ * (see ChatScreen's `rememberLauncherForActivityResult` + `RecognizerIntent`) rather than a
+ * raw `SpeechRecognizer` binder connection. The raw API is notoriously unreliable across
+ * OEM builds — sessions can silently hang at "Listening…" forever on some devices with no
+ * result and no error. Delegating to the system dialog (the same code path behind the mic
+ * icon in Google Search / Gboard) is dramatically more consistent. This class just exposes
+ * the small callback surface the UI needs to report back through.
+ */
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
-
-    companion object {
-        /** Hard ceiling on a single listening session, in case the recognizer never
-         *  finalizes on its own (flaky network, OEM quirks, etc). */
-        private const val MAX_LISTENING_MILLIS = 20_000L
-    }
 
     private val settingsStore = SettingsStore(application)
     private val gatewayClient = KiloGatewayClient()
-    private val speechRecognizer = SpeechRecognizerManager(application)
     private val textToSpeech = TextToSpeechManager(application)
     private val historyStore = ChatHistoryStore(application)
 
@@ -75,9 +72,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     /** The conversation currently open on the Chat screen. Every voice/typed exchange
      *  keeps appending here until [startNewConversation] or [openSession] is called. */
     private var currentSessionId: String? = null
-
-    /** Safety net so a stuck/never-finalizing recognizer session can't listen forever. */
-    private var listeningTimeoutJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -105,39 +99,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        speechRecognizer.onListeningStarted = {
-            _chatState.value = _chatState.value.copy(
-                orbState = OrbState.LISTENING,
-                statusText = "Listening…",
-                liveTranscript = "",
-                errorText = null
-            )
-        }
-        speechRecognizer.onRmsChanged = { level ->
-            _chatState.value = _chatState.value.copy(micLevel = level.coerceIn(0f, 10f) / 10f)
-        }
-        speechRecognizer.onPartialResult = { partial ->
-            _chatState.value = _chatState.value.copy(liveTranscript = partial)
-        }
-        speechRecognizer.onFinalResult = { finalText ->
-            _chatState.value = _chatState.value.copy(liveTranscript = "")
-            sendUserMessage(finalText)
-        }
-        speechRecognizer.onListeningStopped = {
-            cancelListeningTimeout()
-            if (_chatState.value.orbState == OrbState.LISTENING) {
-                _chatState.value = _chatState.value.copy(orbState = OrbState.IDLE, statusText = "Tap the orb and start talking")
-            }
-        }
-        speechRecognizer.onError = { message ->
-            cancelListeningTimeout()
-            _chatState.value = _chatState.value.copy(
-                orbState = OrbState.ERROR,
-                statusText = message,
-                errorText = message
-            )
-        }
-
         textToSpeech.onStart = {
             _chatState.value = _chatState.value.copy(orbState = OrbState.SPEAKING, statusText = "Speaking…")
         }
@@ -146,73 +107,63 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun isSpeechAvailable(): Boolean = speechRecognizer.isAvailable()
+    // ---- Voice capture lifecycle (driven by ChatScreen's activity-result launcher) ----
 
-    fun startListening() {
+    /** Call right before launching the system voice-input activity. Returns false (and sets
+     *  an error) if there's no API key yet, so the UI can skip launching the activity. */
+    fun canStartVoiceCapture(): Boolean {
         if (currentSettings.apiKey.isBlank()) {
             _chatState.value = _chatState.value.copy(
                 orbState = OrbState.ERROR,
                 statusText = "Add your Kilo Gateway API key in Settings first.",
                 errorText = "Missing API key"
             )
-            return
+            return false
         }
-        try {
-            textToSpeech.stop()
-            speechRecognizer.startListening()
-            cancelListeningTimeout()
-            listeningTimeoutJob = viewModelScope.launch {
-                delay(MAX_LISTENING_MILLIS)
-                if (_chatState.value.orbState == OrbState.LISTENING) {
-                    val pending = _chatState.value.liveTranscript.trim()
-                    stopListening()
-                    if (pending.isEmpty()) {
-                        val message = "Didn't hear anything — check your microphone and internet connection, then try again."
-                        _chatState.value = _chatState.value.copy(
-                            orbState = OrbState.ERROR,
-                            statusText = message,
-                            errorText = message
-                        )
-                    }
-                }
-            }
-        } catch (t: Throwable) {
+        return true
+    }
+
+    fun onVoiceCaptureStarted() {
+        textToSpeech.stop()
+        _chatState.value = _chatState.value.copy(
+            orbState = OrbState.LISTENING,
+            statusText = "Listening…",
+            errorText = null
+        )
+    }
+
+    /** The system dialog returned a transcript (or null/blank if it didn't catch anything). */
+    fun onVoiceCaptureResult(text: String?) {
+        val trimmed = text?.trim().orEmpty()
+        if (trimmed.isEmpty()) {
+            val message = "Didn't catch that — try again."
             _chatState.value = _chatState.value.copy(
                 orbState = OrbState.ERROR,
-                statusText = t.message ?: "Couldn't start the microphone.",
-                errorText = t.message ?: "Couldn't start the microphone."
+                statusText = message,
+                errorText = message
             )
+            return
         }
+        sendUserMessage(trimmed)
     }
 
-    /** Tapping the mic again while listening stops the recognizer AND sends whatever was
-     *  transcribed so far — no need to wait for silence-based auto-finalization. */
-    fun stopListening() {
-        cancelListeningTimeout()
-        val pendingTranscript = _chatState.value.liveTranscript.trim()
-        try {
-            speechRecognizer.stopListening()
-        } catch (t: Throwable) {
-            // Ignore — we're resetting to IDLE regardless.
-        }
+    /** User backed out of the system voice dialog without speaking. */
+    fun onVoiceCaptureCancelled() {
+        _chatState.value = _chatState.value.copy(orbState = OrbState.IDLE, statusText = "Tap the orb and start talking")
+    }
+
+    /** No voice-input app available, permission denied, or the activity itself failed to launch. */
+    fun onVoiceCaptureError(message: String) {
         _chatState.value = _chatState.value.copy(
-            orbState = OrbState.IDLE,
-            statusText = "Tap the orb and start talking",
-            liveTranscript = ""
+            orbState = OrbState.ERROR,
+            statusText = message,
+            errorText = message
         )
-        if (pendingTranscript.isNotEmpty()) {
-            sendUserMessage(pendingTranscript)
-        }
-    }
-
-    private fun cancelListeningTimeout() {
-        listeningTimeoutJob?.cancel()
-        listeningTimeoutJob = null
     }
 
     fun sendTypedMessage(text: String) {
         if (text.isBlank()) return
-        sendUserMessage(text)
+        sendUserMessage(text.trim())
     }
 
     private fun sendUserMessage(text: String) {
@@ -373,7 +324,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
-        speechRecognizer.destroy()
         textToSpeech.shutdown()
     }
 }

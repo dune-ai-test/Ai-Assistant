@@ -1,7 +1,10 @@
 package com.midnight.assistant.ui.screens
 
 import android.Manifest
+import android.app.Activity
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.speech.RecognizerIntent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,7 +28,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
@@ -63,6 +65,18 @@ import com.midnight.assistant.ui.theme.MidnightRadius
 import com.midnight.assistant.ui.theme.MidnightSpacing
 import com.midnight.assistant.viewmodel.ChatViewModel
 import com.midnight.assistant.viewmodel.OrbState
+import java.util.Locale
+
+/** Builds the standard system speech-recognition intent — the same mechanism behind the
+ *  mic icon in Google Search / Gboard. Delegating to it (instead of driving a raw
+ *  SpeechRecognizer binder connection ourselves) is far more reliable across devices. */
+private fun buildVoiceRecognitionIntent(packageName: String): Intent =
+    Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+        putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toString())
+        putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak now…")
+        putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
+    }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -84,11 +98,50 @@ fun ChatScreen(
         )
     }
 
+    // Launches the system's own voice-input dialog. This is the same mechanism behind the
+    // mic icon in Google Search / Gboard — far more reliable across devices than driving a
+    // raw SpeechRecognizer connection directly.
+    val voiceCaptureLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        when (result.resultCode) {
+            Activity.RESULT_OK -> {
+                val text = result.data
+                    ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+                    ?.firstOrNull()
+                viewModel.onVoiceCaptureResult(text)
+            }
+            else -> viewModel.onVoiceCaptureCancelled()
+        }
+    }
+
+    fun launchVoiceCaptureIfPermitted() {
+        if (!viewModel.canStartVoiceCapture()) return
+        val intent = buildVoiceRecognitionIntent(context.packageName)
+        if (intent.resolveActivity(context.packageManager) == null) {
+            viewModel.onVoiceCaptureError(
+                "No voice input app found on this device. Install the Google app (or another " +
+                    "assistant/voice app) to enable voice recognition."
+            )
+            return
+        }
+        viewModel.onVoiceCaptureStarted()
+        try {
+            voiceCaptureLauncher.launch(intent)
+        } catch (t: Throwable) {
+            viewModel.onVoiceCaptureError(t.message ?: "Couldn't open voice input.")
+        }
+    }
+
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         hasMicPermission = granted
-        if (granted) viewModel.startListening()
+        if (!granted) {
+            viewModel.onVoiceCaptureError("Microphone permission is required for voice input.")
+        } else {
+            launchVoiceCaptureIfPermitted()
+        }
     }
 
     LaunchedEffect(state.messages.size) {
@@ -97,15 +150,7 @@ fun ChatScreen(
         }
     }
 
-    // While listening, mirror the live partial transcript into the "Type a message" field
-    // instead of a separate large preview — it shows small and inline, right where it'll send from.
-    LaunchedEffect(state.liveTranscript, state.orbState) {
-        if (state.orbState == OrbState.LISTENING) {
-            typedText = state.liveTranscript
-        }
-    }
-
-    // Once a message is actually sent (voice or typed), clear the input.
+    // Clear the typed field once a message is actually sent (voice or typed).
     LaunchedEffect(state.orbState) {
         if (state.orbState == OrbState.THINKING) {
             typedText = ""
@@ -117,6 +162,14 @@ fun ChatScreen(
         if (text.isNotEmpty()) {
             viewModel.sendTypedMessage(text)
             typedText = ""
+        }
+    }
+
+    fun onMicTapped() {
+        if (!hasMicPermission) {
+            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        } else {
+            launchVoiceCaptureIfPermitted()
         }
     }
 
@@ -231,7 +284,6 @@ fun ChatScreen(
                 ) {
                     AiOrb(
                         state = state.orbState,
-                        micLevel = state.micLevel,
                         modifier = Modifier
                     )
 
@@ -245,9 +297,9 @@ fun ChatScreen(
 
                     Spacer(modifier = Modifier.height(MidnightSpacing.stackMd))
 
-                    // Typed-message row — while listening, this mirrors the live transcript
-                    // (small, inline) instead of a separate large preview; tapping the mic
-                    // again stops listening AND sends whatever's in the field.
+                    // Typed-message row. Tapping the mic opens the system's voice input
+                    // dialog (reliable across devices); the transcript it returns is sent
+                    // automatically. Typing here works as a fallback/alternative any time.
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -255,27 +307,24 @@ fun ChatScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(MidnightSpacing.stackSm)
                     ) {
-                        val micActive = state.orbState == OrbState.LISTENING
+                        val isBusy = state.orbState == OrbState.LISTENING || state.orbState == OrbState.THINKING
 
                         OutlinedTextField(
                             value = typedText,
                             onValueChange = { typedText = it },
                             modifier = Modifier.weight(1f),
-                            placeholder = { Text(if (micActive) "Listening…" else "Type a message…") },
-                            readOnly = micActive,
+                            placeholder = { Text("Type a message…") },
+                            enabled = !isBusy,
                             singleLine = true,
                             shape = MaterialTheme.shapes.large,
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                             keyboardActions = KeyboardActions(onSend = { sendTyped() }),
                             trailingIcon = {
-                                IconButton(
-                                    onClick = { if (micActive) viewModel.stopListening() else sendTyped() },
-                                    enabled = micActive || typedText.isNotBlank()
-                                ) {
+                                IconButton(onClick = { sendTyped() }, enabled = !isBusy && typedText.isNotBlank()) {
                                     Icon(
                                         Icons.Filled.Send,
                                         contentDescription = "Send",
-                                        tint = if (micActive || typedText.isNotBlank()) MidnightColors.tertiary else MidnightColors.onSurfaceVariant
+                                        tint = if (typedText.isNotBlank()) MidnightColors.tertiary else MidnightColors.onSurfaceVariant
                                     )
                                 }
                             },
@@ -297,7 +346,7 @@ fun ChatScreen(
                                 .size(56.dp)
                                 .background(
                                     brush = Brush.linearGradient(
-                                        colors = if (micActive) {
+                                        colors = if (state.orbState == OrbState.LISTENING) {
                                             listOf(MidnightColors.error, MidnightColors.errorContainer)
                                         } else {
                                             listOf(MidnightColors.tertiary, MidnightColors.secondary)
@@ -308,18 +357,13 @@ fun ChatScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             IconButton(
-                                onClick = {
-                                    when {
-                                        micActive -> viewModel.stopListening()
-                                        hasMicPermission -> viewModel.startListening()
-                                        else -> permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                                    }
-                                },
+                                onClick = { onMicTapped() },
+                                enabled = state.orbState != OrbState.THINKING,
                                 modifier = Modifier.size(56.dp)
                             ) {
                                 Icon(
-                                    imageVector = if (micActive) Icons.Filled.MicOff else Icons.Filled.Mic,
-                                    contentDescription = if (micActive) "Stop listening and send" else "Start listening",
+                                    imageVector = Icons.Filled.Mic,
+                                    contentDescription = "Start voice input",
                                     tint = MidnightColors.onPrimary,
                                     modifier = Modifier.size(24.dp)
                                 )
