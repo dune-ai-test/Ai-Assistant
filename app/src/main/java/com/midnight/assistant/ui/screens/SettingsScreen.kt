@@ -72,6 +72,9 @@ fun SettingsScreen(
     var modelMenuExpanded by remember { mutableStateOf(false) }
     var modelSearchQuery by remember { mutableStateOf("") }
     var autoSpeak by remember(settingsState.settings.autoSpeak) { mutableStateOf(settingsState.settings.autoSpeak) }
+    var allowVoiceInterrupt by remember(settingsState.settings.allowVoiceInterrupt) {
+        mutableStateOf(settingsState.settings.allowVoiceInterrupt)
+    }
 
     val filteredModels = remember(settingsState.availableModels, modelSearchQuery) {
         if (modelSearchQuery.isBlank()) {
@@ -282,6 +285,35 @@ fun SettingsScreen(
                         onCheckedChange = {
                             autoSpeak = it
                             viewModel.saveAutoSpeak(it)
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = MidnightColors.onPrimary,
+                            checkedTrackColor = MidnightColors.tertiary,
+                            uncheckedTrackColor = MidnightColors.surfaceContainerHigh
+                        )
+                    )
+                }
+            }
+
+            GlassCard(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Allow voice interruption", style = MaterialTheme.typography.bodyLarge, color = MidnightColors.onSurface)
+                        Text(
+                            "In Voice Mode, start talking while the assistant is speaking to interrupt it. " +
+                                "Best-effort — may occasionally misfire on speakerphone; turn off if it interrupts itself.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MidnightColors.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = allowVoiceInterrupt,
+                        onCheckedChange = {
+                            allowVoiceInterrupt = it
+                            viewModel.saveAllowVoiceInterrupt(it)
                         },
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = MidnightColors.onPrimary,

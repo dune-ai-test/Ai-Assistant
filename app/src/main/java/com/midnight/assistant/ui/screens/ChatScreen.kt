@@ -1,10 +1,7 @@
 package com.midnight.assistant.ui.screens
 
 import android.Manifest
-import android.app.Activity
-import android.content.Intent
 import android.content.pm.PackageManager
-import android.speech.RecognizerIntent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,6 +25,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
@@ -39,6 +37,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -65,18 +64,6 @@ import com.midnight.assistant.ui.theme.MidnightRadius
 import com.midnight.assistant.ui.theme.MidnightSpacing
 import com.midnight.assistant.viewmodel.ChatViewModel
 import com.midnight.assistant.viewmodel.OrbState
-import java.util.Locale
-
-/** Builds the standard system speech-recognition intent — the same mechanism behind the
- *  mic icon in Google Search / Gboard. Delegating to it (instead of driving a raw
- *  SpeechRecognizer binder connection ourselves) is far more reliable across devices. */
-private fun buildVoiceRecognitionIntent(packageName: String): Intent =
-    Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-        putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toString())
-        putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak now…")
-        putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
-    }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -98,50 +85,11 @@ fun ChatScreen(
         )
     }
 
-    // Launches the system's own voice-input dialog. This is the same mechanism behind the
-    // mic icon in Google Search / Gboard — far more reliable across devices than driving a
-    // raw SpeechRecognizer connection directly.
-    val voiceCaptureLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        when (result.resultCode) {
-            Activity.RESULT_OK -> {
-                val text = result.data
-                    ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
-                    ?.firstOrNull()
-                viewModel.onVoiceCaptureResult(text)
-            }
-            else -> viewModel.onVoiceCaptureCancelled()
-        }
-    }
-
-    fun launchVoiceCaptureIfPermitted() {
-        if (!viewModel.canStartVoiceCapture()) return
-        val intent = buildVoiceRecognitionIntent(context.packageName)
-        if (intent.resolveActivity(context.packageManager) == null) {
-            viewModel.onVoiceCaptureError(
-                "No voice input app found on this device. Install the Google app (or another " +
-                    "assistant/voice app) to enable voice recognition."
-            )
-            return
-        }
-        viewModel.onVoiceCaptureStarted()
-        try {
-            voiceCaptureLauncher.launch(intent)
-        } catch (t: Throwable) {
-            viewModel.onVoiceCaptureError(t.message ?: "Couldn't open voice input.")
-        }
-    }
-
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         hasMicPermission = granted
-        if (!granted) {
-            viewModel.onVoiceCaptureError("Microphone permission is required for voice input.")
-        } else {
-            launchVoiceCaptureIfPermitted()
-        }
+        if (granted) viewModel.onOrbTapped()
     }
 
     LaunchedEffect(state.messages.size) {
@@ -169,7 +117,7 @@ fun ChatScreen(
         if (!hasMicPermission) {
             permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         } else {
-            launchVoiceCaptureIfPermitted()
+            viewModel.onOrbTapped()
         }
     }
 
@@ -282,8 +230,18 @@ fun ChatScreen(
                         .padding(bottom = MidnightSpacing.stackMd),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    if (state.isVoiceModeActive) {
+                        Text(
+                            text = "VOICE MODE",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MidnightColors.tertiary,
+                            modifier = Modifier.padding(bottom = 4.dp)
+                        )
+                    }
+
                     AiOrb(
                         state = state.orbState,
+                        micLevel = state.micLevel,
                         modifier = Modifier
                     )
 
@@ -295,11 +253,24 @@ fun ChatScreen(
                         color = MidnightColors.onSurfaceVariant
                     )
 
+                    if (state.liveTranscript.isNotBlank()) {
+                        Text(
+                            text = state.liveTranscript,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MidnightColors.onSurface,
+                            modifier = Modifier.padding(horizontal = 32.dp, top = 4.dp)
+                        )
+                    }
+
+                    if (state.isVoiceModeActive) {
+                        TextButton(onClick = { viewModel.stopVoiceMode() }) {
+                            Text("End Voice Mode", color = MidnightColors.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(MidnightSpacing.stackMd))
 
-                    // Typed-message row. Tapping the mic opens the system's voice input
-                    // dialog (reliable across devices); the transcript it returns is sent
-                    // automatically. Typing here works as a fallback/alternative any time.
+                    // Typed-message row — always available as a fallback/alternative to voice.
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -346,7 +317,7 @@ fun ChatScreen(
                                 .size(56.dp)
                                 .background(
                                     brush = Brush.linearGradient(
-                                        colors = if (state.orbState == OrbState.LISTENING) {
+                                        colors = if (state.isVoiceModeActive) {
                                             listOf(MidnightColors.error, MidnightColors.errorContainer)
                                         } else {
                                             listOf(MidnightColors.tertiary, MidnightColors.secondary)
@@ -358,12 +329,15 @@ fun ChatScreen(
                         ) {
                             IconButton(
                                 onClick = { onMicTapped() },
-                                enabled = state.orbState != OrbState.THINKING,
                                 modifier = Modifier.size(56.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Filled.Mic,
-                                    contentDescription = "Start voice input",
+                                    imageVector = if (state.isVoiceModeActive) Icons.Filled.MicOff else Icons.Filled.Mic,
+                                    contentDescription = if (state.isVoiceModeActive) {
+                                        if (state.orbState == OrbState.SPEAKING) "Interrupt" else "End Voice Mode"
+                                    } else {
+                                        "Start Voice Mode"
+                                    },
                                     tint = MidnightColors.onPrimary,
                                     modifier = Modifier.size(24.dp)
                                 )

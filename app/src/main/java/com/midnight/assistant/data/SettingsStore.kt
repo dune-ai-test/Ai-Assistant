@@ -24,6 +24,7 @@ data class AssistantSettings(
     val modelId: String = KiloDefaults.MODEL,
     val modelDisplayName: String = KiloDefaults.MODEL,
     val autoSpeak: Boolean = true,
+    val allowVoiceInterrupt: Boolean = true,
     val systemPrompt: String = "You are a warm, concise voice assistant. Keep spoken replies short and natural."
 )
 
@@ -35,6 +36,7 @@ class SettingsStore(private val context: Context) {
         val MODEL_ID = stringPreferencesKey("model_id")
         val MODEL_NAME = stringPreferencesKey("model_name")
         val AUTO_SPEAK = stringPreferencesKey("auto_speak")
+        val ALLOW_VOICE_INTERRUPT = stringPreferencesKey("allow_voice_interrupt")
         val SYSTEM_PROMPT = stringPreferencesKey("system_prompt")
         val CACHED_MODELS = stringPreferencesKey("cached_models_json")
     }
@@ -46,6 +48,7 @@ class SettingsStore(private val context: Context) {
             modelId = prefs[Keys.MODEL_ID] ?: KiloDefaults.MODEL,
             modelDisplayName = prefs[Keys.MODEL_NAME] ?: (prefs[Keys.MODEL_ID] ?: KiloDefaults.MODEL),
             autoSpeak = (prefs[Keys.AUTO_SPEAK] ?: "true").toBoolean(),
+            allowVoiceInterrupt = (prefs[Keys.ALLOW_VOICE_INTERRUPT] ?: "true").toBoolean(),
             systemPrompt = prefs[Keys.SYSTEM_PROMPT]
                 ?: "You are a warm, concise voice assistant. Keep spoken replies short and natural."
         )
@@ -68,6 +71,10 @@ class SettingsStore(private val context: Context) {
 
     suspend fun saveAutoSpeak(enabled: Boolean) {
         context.dataStore.edit { it[Keys.AUTO_SPEAK] = enabled.toString() }
+    }
+
+    suspend fun saveAllowVoiceInterrupt(enabled: Boolean) {
+        context.dataStore.edit { it[Keys.ALLOW_VOICE_INTERRUPT] = enabled.toString() }
     }
 
     suspend fun saveSystemPrompt(prompt: String) {

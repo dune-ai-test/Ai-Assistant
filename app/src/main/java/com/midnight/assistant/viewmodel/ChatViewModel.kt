@@ -12,6 +12,8 @@ import com.midnight.assistant.data.GatewayResult
 import com.midnight.assistant.data.KiloGatewayClient
 import com.midnight.assistant.data.Role
 import com.midnight.assistant.data.SettingsStore
+import com.midnight.assistant.speech.ContinuousSpeechRecognizer
+import com.midnight.assistant.speech.MicActivityMonitor
 import com.midnight.assistant.speech.TextToSpeechManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -24,7 +26,10 @@ enum class OrbState { IDLE, LISTENING, THINKING, SPEAKING, ERROR }
 data class ChatUiState(
     val messages: List<ChatMessage> = emptyList(),
     val orbState: OrbState = OrbState.IDLE,
-    val statusText: String = "Tap the orb and start talking",
+    val statusText: String = "Tap the orb to start Voice Mode",
+    val liveTranscript: String = "",
+    val micLevel: Float = 0f,
+    val isVoiceModeActive: Boolean = false,
     val errorText: String? = null
 )
 
@@ -43,18 +48,17 @@ data class HistoryUiState(
 )
 
 /**
- * Voice capture is driven from the UI layer via the system's speech-recognition activity
- * (see ChatScreen's `rememberLauncherForActivityResult` + `RecognizerIntent`) rather than a
- * raw `SpeechRecognizer` binder connection. The raw API is notoriously unreliable across
- * OEM builds — sessions can silently hang at "Listening…" forever on some devices with no
- * result and no error. Delegating to the system dialog (the same code path behind the mic
- * icon in Google Search / Gboard) is dramatically more consistent. This class just exposes
- * the small callback surface the UI needs to report back through.
+ * Powers a ChatGPT-Voice-Mode-style continuous conversation:
+ *   tap orb -> listen -> (silence detected) -> send -> reply -> speak -> listen again -> …
+ * looping automatically with no per-utterance button presses, until the user ends Voice
+ * Mode or taps the orb while the assistant is talking to interrupt it (barge-in).
  */
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private val settingsStore = SettingsStore(application)
     private val gatewayClient = KiloGatewayClient()
+    private val speechRecognizer = ContinuousSpeechRecognizer(application)
+    private val micActivityMonitor = MicActivityMonitor(application)
     private val textToSpeech = TextToSpeechManager(application)
     private val historyStore = ChatHistoryStore(application)
 
@@ -99,66 +103,118 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
+        speechRecognizer.onListeningStarted = {
+            _chatState.value = _chatState.value.copy(
+                orbState = OrbState.LISTENING,
+                statusText = "Listening…",
+                liveTranscript = "",
+                errorText = null
+            )
+        }
+        speechRecognizer.onRmsChanged = { level ->
+            _chatState.value = _chatState.value.copy(micLevel = (level.coerceIn(0f, 10f) / 10f))
+        }
+        speechRecognizer.onPartialResult = { partial ->
+            _chatState.value = _chatState.value.copy(liveTranscript = partial)
+        }
+        speechRecognizer.onFinalResult = { text ->
+            _chatState.value = _chatState.value.copy(liveTranscript = "")
+            sendUserMessage(text)
+        }
+        speechRecognizer.onNoSpeechDetected = {
+            _chatState.value = _chatState.value.copy(liveTranscript = "")
+            if (_chatState.value.isVoiceModeActive) {
+                // Normal pause in a continuous conversation — just keep listening.
+                speechRecognizer.startListening()
+            } else {
+                _chatState.value = _chatState.value.copy(
+                    orbState = OrbState.IDLE,
+                    statusText = "Tap the orb to start Voice Mode"
+                )
+            }
+        }
+        speechRecognizer.onFatalError = { message ->
+            micActivityMonitor.stop()
+            _chatState.value = _chatState.value.copy(
+                isVoiceModeActive = false,
+                orbState = OrbState.ERROR,
+                statusText = message,
+                errorText = message,
+                liveTranscript = ""
+            )
+        }
+
         textToSpeech.onStart = {
             _chatState.value = _chatState.value.copy(orbState = OrbState.SPEAKING, statusText = "Speaking…")
+            if (_chatState.value.isVoiceModeActive && currentSettings.allowVoiceInterrupt) {
+                micActivityMonitor.start(viewModelScope) {
+                    interruptSpeaking()
+                }
+            }
         }
         textToSpeech.onDone = {
-            _chatState.value = _chatState.value.copy(orbState = OrbState.IDLE, statusText = "Tap the orb and start talking")
+            micActivityMonitor.stop()
+            if (_chatState.value.isVoiceModeActive) {
+                _chatState.value = _chatState.value.copy(statusText = "Listening…")
+                speechRecognizer.startListening()
+            } else {
+                _chatState.value = _chatState.value.copy(
+                    orbState = OrbState.IDLE,
+                    statusText = "Tap the orb to start Voice Mode"
+                )
+            }
         }
     }
 
-    // ---- Voice capture lifecycle (driven by ChatScreen's activity-result launcher) ----
+    // ---- Voice Mode ----
 
-    /** Call right before launching the system voice-input activity. Returns false (and sets
-     *  an error) if there's no API key yet, so the UI can skip launching the activity. */
-    fun canStartVoiceCapture(): Boolean {
+    /** Single entry point the orb/mic button calls. Behavior depends on current state:
+     *  off -> start; speaking -> interrupt (barge-in); otherwise -> end Voice Mode. */
+    fun onOrbTapped() {
+        val current = _chatState.value
+        when {
+            !current.isVoiceModeActive -> startVoiceMode()
+            current.orbState == OrbState.SPEAKING -> interruptSpeaking()
+            else -> stopVoiceMode()
+        }
+    }
+
+    fun startVoiceMode() {
         if (currentSettings.apiKey.isBlank()) {
             _chatState.value = _chatState.value.copy(
                 orbState = OrbState.ERROR,
                 statusText = "Add your Kilo Gateway API key in Settings first.",
                 errorText = "Missing API key"
             )
-            return false
-        }
-        return true
-    }
-
-    fun onVoiceCaptureStarted() {
-        textToSpeech.stop()
-        _chatState.value = _chatState.value.copy(
-            orbState = OrbState.LISTENING,
-            statusText = "Listening…",
-            errorText = null
-        )
-    }
-
-    /** The system dialog returned a transcript (or null/blank if it didn't catch anything). */
-    fun onVoiceCaptureResult(text: String?) {
-        val trimmed = text?.trim().orEmpty()
-        if (trimmed.isEmpty()) {
-            val message = "Didn't catch that — try again."
-            _chatState.value = _chatState.value.copy(
-                orbState = OrbState.ERROR,
-                statusText = message,
-                errorText = message
-            )
             return
         }
-        sendUserMessage(trimmed)
+        textToSpeech.stop()
+        micActivityMonitor.stop()
+        _chatState.value = _chatState.value.copy(isVoiceModeActive = true, errorText = null)
+        speechRecognizer.startListening()
     }
 
-    /** User backed out of the system voice dialog without speaking. */
-    fun onVoiceCaptureCancelled() {
-        _chatState.value = _chatState.value.copy(orbState = OrbState.IDLE, statusText = "Tap the orb and start talking")
-    }
-
-    /** No voice-input app available, permission denied, or the activity itself failed to launch. */
-    fun onVoiceCaptureError(message: String) {
+    fun stopVoiceMode() {
+        micActivityMonitor.stop()
+        speechRecognizer.stopListening()
+        textToSpeech.stop()
         _chatState.value = _chatState.value.copy(
-            orbState = OrbState.ERROR,
-            statusText = message,
-            errorText = message
+            isVoiceModeActive = false,
+            orbState = OrbState.IDLE,
+            statusText = "Tap the orb to start Voice Mode",
+            liveTranscript = ""
         )
+    }
+
+    /** Called when the user starts talking while the assistant is mid-reply (either
+     *  automatically via [MicActivityMonitor], or manually by tapping the orb). */
+    fun interruptSpeaking() {
+        val current = _chatState.value
+        if (!current.isVoiceModeActive || current.orbState != OrbState.SPEAKING) return
+        micActivityMonitor.stop()
+        textToSpeech.stop()
+        _chatState.value = current.copy(orbState = OrbState.LISTENING, statusText = "Listening…")
+        speechRecognizer.startListening()
     }
 
     fun sendTypedMessage(text: String) {
@@ -190,18 +246,26 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 is GatewayResult.Success -> {
                     val assistantMessage = ChatMessage(role = Role.ASSISTANT, text = result.value)
                     val finalHistory = _chatState.value.messages + assistantMessage
+                    // Always speak while Voice Mode is active (that's the whole point of it);
+                    // otherwise respect the general "speak replies aloud" setting.
+                    val shouldSpeak = currentSettings.autoSpeak || _chatState.value.isVoiceModeActive
                     _chatState.value = _chatState.value.copy(
                         messages = finalHistory,
-                        orbState = if (currentSettings.autoSpeak) OrbState.SPEAKING else OrbState.IDLE,
-                        statusText = if (currentSettings.autoSpeak) "Speaking…" else "Tap the orb and start talking"
+                        orbState = if (shouldSpeak) OrbState.SPEAKING else OrbState.IDLE,
+                        statusText = if (shouldSpeak) "Speaking…" else "Tap the orb to start Voice Mode"
                     )
                     persistCurrentSession(finalHistory)
-                    if (currentSettings.autoSpeak) {
+                    if (shouldSpeak) {
                         textToSpeech.speak(result.value)
                     }
                 }
                 is GatewayResult.Failure -> {
+                    // A failing turn ends Voice Mode rather than silently retrying forever
+                    // on a persistent error (e.g. a bad API key would otherwise loop non-stop).
+                    speechRecognizer.stopListening()
+                    micActivityMonitor.stop()
                     _chatState.value = _chatState.value.copy(
+                        isVoiceModeActive = false,
                         orbState = OrbState.ERROR,
                         statusText = result.message,
                         errorText = result.message
@@ -219,6 +283,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     /** Explicit "new conversation" action — the ONLY way a fresh, empty thread starts.
      *  Everything else (voice or typed) keeps appending to the current session. */
     fun startNewConversation() {
+        stopVoiceMode()
         viewModelScope.launch {
             val newId = historyStore.startNewSession()
             currentSessionId = newId
@@ -227,6 +292,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun openSession(sessionId: String) {
+        stopVoiceMode()
         viewModelScope.launch {
             historyStore.setCurrentSession(sessionId)
             currentSessionId = sessionId
@@ -254,7 +320,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         _chatState.value = _chatState.value.copy(
             orbState = OrbState.IDLE,
             errorText = null,
-            statusText = "Tap the orb and start talking"
+            statusText = "Tap the orb to start Voice Mode"
         )
     }
 
@@ -268,6 +334,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { settingsStore.saveModel(id, displayName) }
 
     fun saveAutoSpeak(enabled: Boolean) = viewModelScope.launch { settingsStore.saveAutoSpeak(enabled) }
+
+    fun saveAllowVoiceInterrupt(enabled: Boolean) =
+        viewModelScope.launch { settingsStore.saveAllowVoiceInterrupt(enabled) }
 
     fun saveSystemPrompt(prompt: String) = viewModelScope.launch { settingsStore.saveSystemPrompt(prompt) }
 
@@ -324,6 +393,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
+        speechRecognizer.destroy()
+        micActivityMonitor.stop()
         textToSpeech.shutdown()
     }
 }

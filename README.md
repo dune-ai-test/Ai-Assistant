@@ -39,9 +39,8 @@ Nothing is hardcoded: the API key, base URL, model ID, and system prompt all liv
 source control.
 
 ## Conversation history & persistence
-- **Voice input**: tapping the mic opens the system voice-input dialog; whatever it
-  transcribes is sent automatically the moment it returns. Typing in the message field
-  works identically any time as a fallback/alternative.
+- **Voice input**: see "Voice Mode" below for the full continuous conversation flow.
+  Typing in the message field works identically at any time as a fallback/alternative.
 - **Every message is saved**: each exchange is written to disk (`data/ChatHistoryStore.kt`,
   plain JSON files under the app's private storage — nothing leaves the device except the
   text sent to Kilo Gateway) as soon as it happens, so nothing is lost if the app is closed
@@ -56,24 +55,49 @@ source control.
   on its own. Only an explicit tap on "Fetch available models" replaces the cached list.
   The dropdown also has a built-in search field to filter a long model catalog by name or id.
 
+## Voice Mode (continuous, ChatGPT-style conversation)
+Tap the orb once to enter **Voice Mode** — a continuous, hands-mostly-free conversation
+loop, not a "hold to talk" or "tap per sentence" interaction:
+
+1. The app starts listening immediately. Speak naturally — there's no button to press per
+   sentence.
+2. Android's own pause/silence detection decides when your turn ends (`ContinuousSpeechRecognizer`
+   drives one `SpeechRecognizer` turn at a time; the loop that keeps calling it again is
+   what makes it feel continuous).
+3. Once you pause, the transcript is sent to Kilo Gateway automatically.
+4. The reply is spoken aloud via TTS, then the app **automatically starts listening again**
+   — no tap needed — continuing the back-and-forth until you end Voice Mode.
+5. **Interrupting**: while the assistant is talking, tap the orb to jump back in
+   immediately (stops the reply, starts listening). There's also a **best-effort automatic
+   barge-in** — `speech/MicActivityMonitor.kt` uses a lightweight `AudioRecord` amplitude
+   check (with acoustic echo cancellation where the device supports it) to notice you've
+   started talking over the assistant and interrupt on its own. This is inherently
+   approximate — Android doesn't guarantee echo cancellation between arbitrary speaker
+   output and mic input — so it can occasionally misfire on speakerphone. Turn it off in
+   Settings ("Allow voice interruption") if that happens; manually tapping the orb to
+   interrupt always works regardless.
+6. Tap **"End Voice Mode"** (or the mic button while it's your turn to talk) to leave the
+   loop entirely. Typing in the message field works identically at any time as a
+   fallback/alternative to voice.
+
+Why this isn't the "tap mic → get one system dialog" approach from an earlier iteration:
+that one-shot system dialog is reliable but is fundamentally modal — there's no way to
+loop it invisibly, show partial transcripts inline, or support interruption. True
+continuous Voice Mode requires driving `SpeechRecognizer` directly, restarting it after
+each turn. The earlier reliability problems with that API came from custom silence-length
+intent extras that some OEM recognizers mishandle; those have been removed here, and only
+the always-supported extras are used.
+
 ## Voice pipeline
-- **Speech-to-text**: `ChatScreen.kt` launches the **system's own voice-input dialog**
-  (`RecognizerIntent.ACTION_RECOGNIZE_SPEECH` via `ActivityResultContracts.StartActivityForResult`)
-  — the same mechanism behind the mic icon in Google Search / Gboard. An earlier version of
-  this app drove a raw `SpeechRecognizer` binder connection directly; that API is known to
-  hang silently ("Listening…" forever, no result, no error) on a lot of OEM builds. The
-  system dialog is dramatically more reliable since it's the exact code path already
-  exercised by every voice-typing feature on the device. `RECORD_AUDIO` is still requested
-  at runtime since some OEM recognizers check the calling app's permission too.
-- **Text-to-speech**: `speech/TextToSpeechManager.kt` wraps `android.speech.tts.TextToSpeech`
-  and speaks each assistant reply when "Speak replies aloud" is enabled in Settings.
-- **Orchestration**: `viewmodel/ChatViewModel.kt` owns the conversation state machine
-  (idle → listening → thinking → speaking) and exposes a small callback surface
-  (`onVoiceCaptureStarted/Result/Cancelled/Error`) that `ChatScreen` reports into once the
-  system dialog returns.
-- If no voice-input app is available on the device at all (rare — basically requires no
-  Google app or any other assistant installed), tapping the mic shows a clear error instead
-  of doing nothing.
+- **Speech-to-text**: `speech/ContinuousSpeechRecognizer.kt` wraps `SpeechRecognizer` for
+  one turn at a time; `ChatViewModel` re-invokes it after each turn to keep the
+  conversation going. `RECORD_AUDIO` is requested at runtime from `ChatScreen`, and a
+  connectivity check fails fast with a clear message instead of hanging if there's no
+  network (most on-device recognizers need it).
+- **Barge-in detection**: `speech/MicActivityMonitor.kt` — see "Voice Mode" above.
+- **Text-to-speech**: `speech/TextToSpeechManager.kt` wraps `android.speech.tts.TextToSpeech`.
+- **Orchestration**: `viewmodel/ChatViewModel.kt` owns the full conversation state machine
+  (idle → listening → thinking → speaking → listening → …) and both speech components.
 
 ## Design system mapping (design.md → code)
 | design.md | Implementation |
@@ -109,7 +133,9 @@ app/src/main/java/com/midnight/assistant/
 │   ├── ChatHistoryStore.kt      File-based persistence for conversations (sessions + messages)
 │   └── KiloGatewayClient.kt     OkHttp client for Kilo Gateway (models + chat completions)
 ├── speech/
-│   └── TextToSpeechManager.kt       Android TextToSpeech wrapper
+│   ├── ContinuousSpeechRecognizer.kt  Loop-friendly SpeechRecognizer wrapper (Voice Mode)
+│   ├── MicActivityMonitor.kt          Amplitude-based barge-in detector while TTS plays
+│   └── TextToSpeechManager.kt         Android TextToSpeech wrapper
 ├── viewmodel/
 │   └── ChatViewModel.kt         Conversation + settings + history state, orchestrates STT/API/TTS
 ├── navigation/
