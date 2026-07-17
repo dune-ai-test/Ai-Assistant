@@ -23,10 +23,10 @@ jobs:
       run: chmod +x gradlew
 
     - name: Decode keystore
-      run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/release.keystore
+      run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > release.keystore
 
     - name: Build Release APK
-      run: ./gradlew assembleRelease -Pandroid.injected.signing.store.file=app/release.keystore -Pandroid.injected.signing.store.password=${{ secrets.KEYSTORE_PASSWORD }} -Pandroid.injected.signing.key.alias=${{ secrets.KEY_ALIAS }} -Pandroid.injected.signing.key.password=${{ secrets.KEY_PASSWORD }}
+      run: ./gradlew assembleRelease -Pandroid.injected.signing.store.file=${{ github.workspace }}/release.keystore -Pandroid.injected.signing.store.password=${{ secrets.KEYSTORE_PASSWORD }} -Pandroid.injected.signing.key.alias=${{ secrets.KEY_ALIAS }} -Pandroid.injected.signing.key.password=${{ secrets.KEY_PASSWORD }}
 
     - name: Get version from build.gradle
       id: version
@@ -51,4 +51,4 @@ jobs:
 
     - name: Cleanup keystore
       if: always()
-      run: rm -f app/release.keystore
+      run: rm -f release.keystore
