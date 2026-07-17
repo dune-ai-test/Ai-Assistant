@@ -258,7 +258,7 @@ fun ChatScreen(
                             text = state.liveTranscript,
                             style = MaterialTheme.typography.bodyMedium,
                             color = MidnightColors.onSurface,
-                            modifier = Modifier.padding(horizontal = 32.dp, top = 4.dp)
+                            modifier = Modifier.padding(start = 32.dp, end = 32.dp, top = 4.dp)
                         )
                     }
 
