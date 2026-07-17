@@ -35,18 +35,24 @@ jobs:
         KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
+    - name: Get version from build.gradle
+      id: version
+      run: |
+        VERSION=$(grep 'versionName' app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+
     - name: Upload Release APK
       uses: actions/upload-artifact@v4
       with:
-        name: release-apk-v1.0.1
+        name: release-apk-v${{ steps.version.outputs.version }}
         path: app/build/outputs/apk/release/*.apk
         retention-days: 30
 
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: v1.0.1
-        name: Release v1.0.1
+        tag_name: v${{ steps.version.outputs.version }}
+        name: Release v${{ steps.version.outputs.version }}
         files: app/build/outputs/apk/release/*.apk
         generate_release_notes: true
 
