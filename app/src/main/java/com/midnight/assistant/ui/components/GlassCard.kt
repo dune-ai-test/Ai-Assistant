@@ -14,12 +14,10 @@ import com.midnight.assistant.ui.theme.MidnightColors
 import com.midnight.assistant.ui.theme.MidnightRadius
 
 /**
- * "Frosted Glass" pane per design.md: no solid fill, a soft top-to-bottom gradient
- * standing in for a blur, and a 1px "Ghost Border" at 10-15% white opacity.
- *
- * True backdrop blur isn't available in classic Compose without extra plugins, so the
- * translucent gradient + border combination is used to approximate the glass surface
- * while staying dependency-free.
+ * Solace's "candlelit glass" surface: a warm-tinted translucent panel with a fine gold-tinted
+ * hairline border, standing in for backdrop blur (not available in classic Compose without
+ * extra plugins) so the surface still reads as glass catching warm light rather than a flat
+ * card.
  */
 @Composable
 fun GlassCard(
@@ -32,12 +30,12 @@ fun GlassCard(
     Box(
         modifier = modifier
             .clip(shape)
+            .background(MidnightColors.surfaceContainer.copy(alpha = 0.55f))
             .background(
                 brush = Brush.verticalGradient(
                     colors = listOf(MidnightColors.glassFillTop, MidnightColors.glassFillBottom)
                 )
             )
-            .background(MidnightColors.surfaceContainer.copy(alpha = 0.35f))
             .border(width = 1.dp, color = MidnightColors.ghostBorder, shape = shape)
             .padding(contentPadding)
     ) {

@@ -4,14 +4,25 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- Outer glow -->
     <path
-        android:fillColor="#89CEFF"
-        android:fillAlpha="0.35"
-        android:pathData="M54,54m-30,0a30,30 0,1 1,60 0a30,30 0,1 1,-60 0" />
+        android:fillColor="#E7C793"
+        android:fillAlpha="0.18"
+        android:pathData="M54,54m-32,0a32,32 0,1 1,64 0a32,32 0,1 1,-64 0" />
+    <!-- Fine gold bezel ring -->
     <path
-        android:fillColor="#D2BBFF"
-        android:pathData="M54,54m-20,0a20,20 0,1 1,40 0a20,20 0,1 1,-40 0" />
+        android:fillColor="#00000000"
+        android:strokeColor="#E7C793"
+        android:strokeWidth="1.4"
+        android:strokeAlpha="0.7"
+        android:pathData="M54,54m-25,0a25,25 0,1 1,50 0a25,25 0,1 1,-50 0" />
+    <!-- Jade core -->
     <path
-        android:fillColor="#BEC6E0"
-        android:pathData="M54,54m-9,0a9,9 0,1 1,18 0a9,9 0,1 1,-18 0" />
+        android:fillColor="#8FCBAE"
+        android:pathData="M54,54m-18,0a18,18 0,1 1,36 0a18,18 0,1 1,-36 0" />
+    <!-- Copper inner accent -->
+    <path
+        android:fillColor="#C97A3D"
+        android:fillAlpha="0.85"
+        android:pathData="M54,54m-8,0a8,8 0,1 1,16 0a8,8 0,1 1,-16 0" />
 </vector>

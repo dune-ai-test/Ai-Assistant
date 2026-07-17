@@ -127,7 +127,7 @@ fun ChatScreen(
             TopAppBar(
                 title = {
                     Text(
-                        "Midnight Assistant",
+                        "Solace",
                         style = MaterialTheme.typography.headlineMedium,
                         color = MidnightColors.onSurface
                     )
@@ -223,7 +223,7 @@ fun ChatScreen(
                     }
                 }
 
-                // Orb + status + mic control, anchored toward the bottom per design.md
+                // Orb + status + mic control, anchored toward the bottom of the screen
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()

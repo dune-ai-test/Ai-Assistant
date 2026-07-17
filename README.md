@@ -1,8 +1,9 @@
-# Midnight Assistant — Android Voice AI App
+# Solace — Android Voice AI App
 
-A native Android voice assistant built with Kotlin + Jetpack Compose. It listens with
-on-device speech recognition, sends the transcript to an LLM through **Kilo Gateway**
-(https://kilo.ai/gateway, an OpenAI-compatible router in front of 500+ models), and speaks
+A native Android voice assistant built with Kotlin + Jetpack Compose. It listens
+continuously (ChatGPT-style Voice Mode), sends the transcript to an LLM through **Kilo
+Gateway** (https://kilo.ai/gateway, an OpenAI-compatible router in front of 500+ models),
+and speaks
 the reply back with text-to-speech. UI is implemented from `design.md`'s "Midnight
 Intelligence" design system (dark glassmorphism, animated AI orb, frosted-glass cards).
 
@@ -105,28 +106,35 @@ the always-supported extras are used.
 - **Orchestration**: `viewmodel/ChatViewModel.kt` owns the full conversation state machine
   (idle → listening → thinking → speaking → listening → …) and both speech components.
 
-## Design system mapping (design.md → code)
-| design.md | Implementation |
-|---|---|
-| Color tokens (`surface`, `primary`, `secondary` = Electric Violet, `tertiary` = Azure, etc.) | `ui/theme/Color.kt` — copied 1:1, wired into a Material 3 `darkColorScheme` in `ui/theme/Theme.kt` |
-| Typography (Hanken Grotesk / Inter / Geist, sizes, line-heights, tracking) | `ui/theme/Type.kt` — exact sizes/weights/line-heights/letter-spacing from design.md. Ships with system sans-serif/monospace fallbacks so the project builds with zero extra assets; see "Adding the real fonts" below. |
-| `rounded.*` radii | `ui/theme/Shape.kt` (`MidnightRadius`, `MidnightShapes`) |
-| `spacing.*` | `ui/theme/Shape.kt` (`MidnightSpacing`) |
-| Glassmorphism cards, Ghost Borders | `ui/components/GlassCard.kt` |
-| AI Orb / visualizer | `ui/components/AiOrb.kt` — animated gradient sphere with ambient glow, reacts to mic input level and assistant state (idle/listening/thinking/speaking) |
-| Luminous-fill primary button, pill-shaped mic button | `ui/screens/ChatScreen.kt` mic button, `ui/screens/SettingsScreen.kt` primary Save button |
-| Borderless lists / message bubbles | `ui/components/MessageBubble.kt` |
+## The Solace design system
+This app was originally built against a client-supplied `design.md` spec ("Midnight
+Intelligence" — cool slate/violet/azure glassmorphism). It's since been fully redesigned
+and rebranded as **Solace**, moving deliberately away from that cool-blue/violet "generic
+AI app" look:
 
-### Adding the real fonts (optional but recommended)
-The type scale, weights and spacing already match design.md exactly — only the literal
-typeface files are swapped for system fonts so the project has zero external asset
-dependencies out of the box. To use the real families:
-1. Download the `.ttf`/`.otf` files for Hanken Grotesk, Inter, and Geist you're licensed
-   to use.
-2. Put them in `app/src/main/res/font/` (Android requires lowercase-with-underscore
-   filenames, e.g. `hanken_grotesk_bold.ttf`).
-3. In `ui/theme/Type.kt`, replace the `HankenGrotesk`/`Inter`/`Geist` `FontFamily.*`
-   placeholders with `FontFamily(Font(R.font.hanken_grotesk_bold, FontWeight.Bold), ...)`.
+| Element | Choice | Where |
+|---|---|---|
+| Palette | Warm, near-black charcoal base (`#0D0B08`) with a champagne-gold signature accent, and jewel-tone states — jade for listening, dusty wine for thinking, glowing copper for speaking, warm ember for errors — instead of a single blue/violet hue reused everywhere | `ui/theme/Color.kt` |
+| Typography | Serif display face (headlines) paired with clean sans body text — an editorial, boutique feel rather than all-sans-everything. Ships on system serif/sans so it builds with zero bundled fonts; swap in a licensed serif (e.g. Fraunces, Freight Display) via `res/font/` for the exact intended look | `ui/theme/Type.kt` |
+| Shape | A tighter, more tailored corner-radius scale than a typical bubbly consumer app | `ui/theme/Shape.kt` (`MidnightRadius`) |
+| Surfaces | "Candlelit glass" — warm-tinted translucent panels with a fine gold hairline border | `ui/components/GlassCard.kt` |
+| Signature mark | A jewel-toned sphere with a fine independently-rotating bezel ring (a nod to precision objects — a watch face, glassware — rather than a generic glowing blob), distinct color family per conversational state | `ui/components/AiOrb.kt` |
+| App icon | Gold bezel ring over a jade core on the warm charcoal background, echoing the orb mark | `res/drawable/ic_launcher_*.xml` |
+
+Note: the Kotlin package (`com.midnight.assistant`) and internal identifiers (`MidnightColors`,
+`MidnightTypography`, etc.) were intentionally left as-is — that's implementation detail
+invisible to anyone using the app, and renaming it project-wide would be a large, purely
+mechanical change with no visible benefit. Only the visible brand — name, icon, colors,
+type, and the orb mark — changed.
+
+### Adding real licensed fonts (optional)
+The type scale, weights, and line-heights are already final — only the literal typeface
+files are system fallbacks so the project builds with zero bundled assets. To use real
+fonts:
+1. Get `.ttf`/`.otf` files for your chosen serif display face and sans body face.
+2. Put them in `app/src/main/res/font/` (lowercase-with-underscore filenames).
+3. In `ui/theme/Type.kt`, replace the `DisplaySerif`/`BodySans`/`LabelSans` `FontFamily.*`
+   placeholders with `FontFamily(Font(R.font.your_font, FontWeight.X), ...)`.
 
 ## Project layout
 ```

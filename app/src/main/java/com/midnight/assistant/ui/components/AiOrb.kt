@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.unit.dp
 import com.midnight.assistant.ui.theme.MidnightColors
@@ -21,10 +22,11 @@ import com.midnight.assistant.viewmodel.OrbState
 import kotlin.math.min
 
 /**
- * "AI Orbs & Visualizers": a fluid, animated gradient sphere with a soft ambient glow
- * bleeding into the Midnight background. Voice capture now happens in the system's own
- * speech-input dialog (more reliable across devices), so there's no live rms stream to
- * react to — [micLevel] defaults to a gentle synthetic pulse while LISTENING instead.
+ * Solace's signature mark: a fluid jewel-toned sphere with a fine rotating bezel ring — a
+ * quiet nod to considered, precision objects (a watch face, a piece of glassware) rather
+ * than a generic glowing "AI blob". Each conversational state gets its own distinct hue
+ * family instead of a palette swap of the same blue/violet: warm gold at rest, jade while
+ * listening, dusty wine while thinking, glowing copper while speaking, ember on error.
  */
 @Composable
 fun AiOrb(
@@ -59,18 +61,28 @@ fun AiOrb(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
-            animation = tween(9000, easing = LinearEasing),
+            animation = tween(11000, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "rotation"
     )
 
+    val bezelRotation by infinite.animateFloat(
+        initialValue = 360f,
+        targetValue = 0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(18000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "bezelRotation"
+    )
+
     val (coreA, coreB, glow) = when (state) {
-        OrbState.IDLE -> Triple(MidnightColors.primary, MidnightColors.brandElectricViolet, MidnightColors.primary)
-        OrbState.LISTENING -> Triple(MidnightColors.tertiary, MidnightColors.brandAzure, MidnightColors.tertiary)
-        OrbState.THINKING -> Triple(MidnightColors.secondary, MidnightColors.secondaryContainer, MidnightColors.secondary)
-        OrbState.CONFIRMING -> Triple(MidnightColors.primary, MidnightColors.tertiary, MidnightColors.primary)
-        OrbState.SPEAKING -> Triple(MidnightColors.tertiary, MidnightColors.secondary, MidnightColors.tertiary)
+        OrbState.IDLE -> Triple(MidnightColors.brandGold, MidnightColors.brandCopper, MidnightColors.brandGold)
+        OrbState.LISTENING -> Triple(MidnightColors.brandJade, MidnightColors.brandEmerald, MidnightColors.brandJade)
+        OrbState.THINKING -> Triple(MidnightColors.brandRose, MidnightColors.brandWine, MidnightColors.brandRose)
+        OrbState.CONFIRMING -> Triple(MidnightColors.brandGold, MidnightColors.brandJade, MidnightColors.brandGold)
+        OrbState.SPEAKING -> Triple(MidnightColors.brandCopper, MidnightColors.brandGold, MidnightColors.brandCopper)
         OrbState.ERROR -> Triple(MidnightColors.error, MidnightColors.errorContainer, MidnightColors.error)
     }
 
@@ -89,13 +101,24 @@ fun AiOrb(
         // Ambient glow — soft colored blur bleeding outward (drop shadow substitute)
         drawCircle(
             brush = Brush.radialGradient(
-                colors = listOf(glow.copy(alpha = 0.35f), Color.Transparent),
+                colors = listOf(glow.copy(alpha = 0.32f), Color.Transparent),
                 center = center,
                 radius = radius * 1.9f
             ),
             radius = radius * 1.9f,
             center = center
         )
+
+        // Fine bezel ring — a precision, watch-face accent that turns slowly and
+        // independently of the core, giving the mark a "crafted object" feel.
+        rotate(bezelRotation, pivot = center) {
+            drawCircle(
+                color = coreA.copy(alpha = 0.55f),
+                radius = radius * 1.16f,
+                center = center,
+                style = Stroke(width = 1.4.dp.toPx())
+            )
+        }
 
         // Fluid gradient core, subtly rotated for a "living" feel
         rotate(rotation, pivot = center) {
@@ -111,7 +134,7 @@ fun AiOrb(
         // Inner highlight to sell the glass/orb material
         drawCircle(
             brush = Brush.radialGradient(
-                colors = listOf(Color.White.copy(alpha = 0.25f), Color.Transparent),
+                colors = listOf(Color.White.copy(alpha = 0.22f), Color.Transparent),
                 center = Offset(center.x - radius * 0.3f, center.y - radius * 0.35f),
                 radius = radius * 0.9f
             ),

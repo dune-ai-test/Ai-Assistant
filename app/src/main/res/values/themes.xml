@@ -1,8 +1,8 @@
 <resources>
     <style name="Theme.MidnightAssistant" parent="android:Theme.Material.NoActionBar">
-        <item name="android:statusBarColor">#051424</item>
-        <item name="android:navigationBarColor">#051424</item>
-        <item name="android:windowBackground">#051424</item>
+        <item name="android:statusBarColor">#0D0B08</item>
+        <item name="android:navigationBarColor">#0D0B08</item>
+        <item name="android:windowBackground">#0D0B08</item>
         <item name="android:windowLightStatusBar">false</item>
     </style>
 </resources>

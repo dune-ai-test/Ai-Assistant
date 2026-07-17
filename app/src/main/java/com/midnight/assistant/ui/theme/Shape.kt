@@ -4,13 +4,17 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Shapes
 import androidx.compose.ui.unit.dp
 
-/** rounded.* from design.md */
+/**
+ * A slightly more restrained radius scale than a typical "friendly bubbly AI app" — softer
+ * than sharp corners, but tighter and more tailored, in keeping with Solace's boutique
+ * rather than playful feel.
+ */
 object MidnightRadius {
-    val sm = 8.dp     // 0.5rem
-    val md1 = 16.dp   // DEFAULT 1rem
-    val md = 24.dp    // 1.5rem — standard card minimum radius
-    val lg = 32.dp    // 2rem — interactive buttons
-    val xl = 48.dp    // 3rem
+    val sm = 6.dp
+    val md1 = 14.dp
+    val md = 18.dp     // standard card radius
+    val lg = 26.dp     // pill-leaning interactive buttons
+    val xl = 40.dp
     val full = 9999.dp
 }
 
@@ -22,7 +26,7 @@ val MidnightShapes = Shapes(
     extraLarge = RoundedCornerShape(MidnightRadius.xl)
 )
 
-/** spacing.* from design.md, in Dp */
+/** Spacing scale — unchanged rhythm, still 4px-based. */
 object MidnightSpacing {
     val unit = 4.dp
     val marginMobile = 20.dp

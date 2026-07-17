@@ -13,5 +13,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Midnight Assistant"
+rootProject.name = "Solace"
 include(":app")
