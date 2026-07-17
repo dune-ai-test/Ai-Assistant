@@ -41,6 +41,11 @@ source control.
 ## Conversation history & persistence
 - **Voice input**: see "Voice Mode" below for the full continuous conversation flow.
   Typing in the message field works identically at any time as a fallback/alternative.
+- **Review before sending**: every recognized turn sits on screen for a few seconds
+  ("Did I get that right?") before it's actually sent, with the exact heard text visible.
+  Tap **Cancel** to stop it (the text is copied into the typed field so you can fix and
+  resend it manually), **Send now** to skip the wait, or just let it send automatically
+  when the countdown hits zero.
 - **Every message is saved**: each exchange is written to disk (`data/ChatHistoryStore.kt`,
   plain JSON files under the app's private storage — nothing leaves the device except the
   text sent to Kilo Gateway) as soon as it happens, so nothing is lost if the app is closed
@@ -53,7 +58,8 @@ source control.
 - **Model list is cached**: the model dropdown in Settings shows whatever was fetched last
   time immediately (persisted via DataStore) — opening Settings never re-hits the network
   on its own. Only an explicit tap on "Fetch available models" replaces the cached list.
-  The dropdown also has a built-in search field to filter a long model catalog by name or id.
+  The model field opens a full searchable picker dialog (`ModelPickerDialog` in
+  `SettingsScreen.kt`) — tap it to browse/search the fetched catalog by name or id and pick one.
 
 ## Voice Mode (continuous, ChatGPT-style conversation)
 Tap the orb once to enter **Voice Mode** — a continuous, hands-mostly-free conversation

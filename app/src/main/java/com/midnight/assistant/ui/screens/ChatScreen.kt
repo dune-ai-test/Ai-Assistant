@@ -262,6 +262,52 @@ fun ChatScreen(
                         )
                     }
 
+                    if (state.orbState == OrbState.CONFIRMING && state.pendingTranscript.isNotBlank()) {
+                        GlassCard(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = MidnightSpacing.marginMobile, vertical = MidnightSpacing.stackSm),
+                            cornerRadius = MidnightRadius.md1,
+                            contentPadding = 16.dp
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                Text(
+                                    "You said:",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MidnightColors.onSurfaceVariant
+                                )
+                                Text(
+                                    state.pendingTranscript,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MidnightColors.onSurface,
+                                    modifier = Modifier.padding(top = 4.dp, bottom = 10.dp)
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        "Sending in ${state.pendingSecondsLeft}s…",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MidnightColors.tertiary
+                                    )
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        TextButton(onClick = {
+                                            typedText = state.pendingTranscript
+                                            viewModel.cancelPendingSend()
+                                        }) {
+                                            Text("Cancel", color = MidnightColors.error)
+                                        }
+                                        TextButton(onClick = { viewModel.sendPendingNow() }) {
+                                            Text("Send now", color = MidnightColors.tertiary)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     if (state.isVoiceModeActive) {
                         TextButton(onClick = { viewModel.stopVoiceMode() }) {
                             Text("End Voice Mode", color = MidnightColors.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
@@ -278,7 +324,9 @@ fun ChatScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(MidnightSpacing.stackSm)
                     ) {
-                        val isBusy = state.orbState == OrbState.LISTENING || state.orbState == OrbState.THINKING
+                        val isBusy = state.orbState == OrbState.LISTENING ||
+                            state.orbState == OrbState.THINKING ||
+                            state.orbState == OrbState.CONFIRMING
 
                         OutlinedTextField(
                             value = typedText,
@@ -334,7 +382,11 @@ fun ChatScreen(
                                 Icon(
                                     imageVector = if (state.isVoiceModeActive) Icons.Filled.MicOff else Icons.Filled.Mic,
                                     contentDescription = if (state.isVoiceModeActive) {
-                                        if (state.orbState == OrbState.SPEAKING) "Interrupt" else "End Voice Mode"
+                                        when (state.orbState) {
+                                            OrbState.SPEAKING -> "Interrupt"
+                                            OrbState.CONFIRMING -> "Cancel"
+                                            else -> "End Voice Mode"
+                                        }
                                     } else {
                                         "Start Voice Mode"
                                     },

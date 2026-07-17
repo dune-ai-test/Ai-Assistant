@@ -15,13 +15,15 @@ import com.midnight.assistant.data.SettingsStore
 import com.midnight.assistant.speech.ContinuousSpeechRecognizer
 import com.midnight.assistant.speech.MicActivityMonitor
 import com.midnight.assistant.speech.TextToSpeechManager
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-enum class OrbState { IDLE, LISTENING, THINKING, SPEAKING, ERROR }
+enum class OrbState { IDLE, LISTENING, THINKING, SPEAKING, CONFIRMING, ERROR }
 
 data class ChatUiState(
     val messages: List<ChatMessage> = emptyList(),
@@ -30,6 +32,10 @@ data class ChatUiState(
     val liveTranscript: String = "",
     val micLevel: Float = 0f,
     val isVoiceModeActive: Boolean = false,
+    /** What the recognizer heard, shown for review before it's actually sent — see
+     *  [ChatViewModel.beginPendingSend]. Empty unless orbState == CONFIRMING. */
+    val pendingTranscript: String = "",
+    val pendingSecondsLeft: Int = 0,
     val errorText: String? = null
 )
 
@@ -55,12 +61,20 @@ data class HistoryUiState(
  */
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
+    companion object {
+        /** How long a heard transcript sits on screen for review before it's actually sent
+         *  — long enough to read and tap Cancel if the recognizer misheard something. */
+        private const val PENDING_SEND_SECONDS = 4
+    }
+
     private val settingsStore = SettingsStore(application)
     private val gatewayClient = KiloGatewayClient()
     private val speechRecognizer = ContinuousSpeechRecognizer(application)
     private val micActivityMonitor = MicActivityMonitor(application)
     private val textToSpeech = TextToSpeechManager(application)
     private val historyStore = ChatHistoryStore(application)
+
+    private var pendingSendJob: Job? = null
 
     private val _chatState = MutableStateFlow(ChatUiState())
     val chatState: StateFlow<ChatUiState> = _chatState.asStateFlow()
@@ -118,8 +132,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             _chatState.value = _chatState.value.copy(liveTranscript = partial)
         }
         speechRecognizer.onFinalResult = { text ->
-            _chatState.value = _chatState.value.copy(liveTranscript = "")
-            sendUserMessage(text)
+            beginPendingSend(text)
         }
         speechRecognizer.onNoSpeechDetected = {
             _chatState.value = _chatState.value.copy(liveTranscript = "")
@@ -169,13 +182,68 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     // ---- Voice Mode ----
 
     /** Single entry point the orb/mic button calls. Behavior depends on current state:
-     *  off -> start; speaking -> interrupt (barge-in); otherwise -> end Voice Mode. */
+     *  off -> start; speaking -> interrupt (barge-in); confirming -> cancel the pending
+     *  send; otherwise -> end Voice Mode. */
     fun onOrbTapped() {
         val current = _chatState.value
         when {
             !current.isVoiceModeActive -> startVoiceMode()
             current.orbState == OrbState.SPEAKING -> interruptSpeaking()
+            current.orbState == OrbState.CONFIRMING -> cancelPendingSend()
             else -> stopVoiceMode()
+        }
+    }
+
+    /** A turn was heard — instead of sending immediately, show it for [PENDING_SEND_SECONDS]
+     *  so a misheard sentence can be caught and cancelled before it actually goes out. */
+    private fun beginPendingSend(text: String) {
+        pendingSendJob?.cancel()
+        _chatState.value = _chatState.value.copy(
+            orbState = OrbState.CONFIRMING,
+            liveTranscript = "",
+            pendingTranscript = text,
+            pendingSecondsLeft = PENDING_SEND_SECONDS,
+            statusText = "Did I get that right?",
+            errorText = null
+        )
+        pendingSendJob = viewModelScope.launch {
+            for (secondsLeft in PENDING_SEND_SECONDS downTo 1) {
+                _chatState.value = _chatState.value.copy(pendingSecondsLeft = secondsLeft)
+                delay(1000)
+            }
+            val toSend = _chatState.value.pendingTranscript
+            _chatState.value = _chatState.value.copy(pendingTranscript = "", pendingSecondsLeft = 0)
+            if (toSend.isNotBlank()) {
+                sendUserMessage(toSend)
+            }
+        }
+    }
+
+    /** Cancels a pending voice turn before it's sent. Voice Mode (if active) resumes
+     *  listening right away so the user can just try saying it again. */
+    fun cancelPendingSend() {
+        pendingSendJob?.cancel()
+        pendingSendJob = null
+        val stillInVoiceMode = _chatState.value.isVoiceModeActive
+        _chatState.value = _chatState.value.copy(
+            pendingTranscript = "",
+            pendingSecondsLeft = 0,
+            orbState = if (stillInVoiceMode) OrbState.LISTENING else OrbState.IDLE,
+            statusText = if (stillInVoiceMode) "Listening…" else "Tap the orb to start Voice Mode"
+        )
+        if (stillInVoiceMode) {
+            speechRecognizer.startListening()
+        }
+    }
+
+    /** Skips the rest of the review window and sends the pending transcript right now. */
+    fun sendPendingNow() {
+        pendingSendJob?.cancel()
+        pendingSendJob = null
+        val toSend = _chatState.value.pendingTranscript
+        _chatState.value = _chatState.value.copy(pendingTranscript = "", pendingSecondsLeft = 0)
+        if (toSend.isNotBlank()) {
+            sendUserMessage(toSend)
         }
     }
 
@@ -188,13 +256,22 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             )
             return
         }
+        pendingSendJob?.cancel()
+        pendingSendJob = null
         textToSpeech.stop()
         micActivityMonitor.stop()
-        _chatState.value = _chatState.value.copy(isVoiceModeActive = true, errorText = null)
+        _chatState.value = _chatState.value.copy(
+            isVoiceModeActive = true,
+            pendingTranscript = "",
+            pendingSecondsLeft = 0,
+            errorText = null
+        )
         speechRecognizer.startListening()
     }
 
     fun stopVoiceMode() {
+        pendingSendJob?.cancel()
+        pendingSendJob = null
         micActivityMonitor.stop()
         speechRecognizer.stopListening()
         textToSpeech.stop()
@@ -202,7 +279,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             isVoiceModeActive = false,
             orbState = OrbState.IDLE,
             statusText = "Tap the orb to start Voice Mode",
-            liveTranscript = ""
+            liveTranscript = "",
+            pendingTranscript = "",
+            pendingSecondsLeft = 0
         )
     }
 

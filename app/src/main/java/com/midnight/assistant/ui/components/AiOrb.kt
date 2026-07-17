@@ -69,6 +69,7 @@ fun AiOrb(
         OrbState.IDLE -> Triple(MidnightColors.primary, MidnightColors.brandElectricViolet, MidnightColors.primary)
         OrbState.LISTENING -> Triple(MidnightColors.tertiary, MidnightColors.brandAzure, MidnightColors.tertiary)
         OrbState.THINKING -> Triple(MidnightColors.secondary, MidnightColors.secondaryContainer, MidnightColors.secondary)
+        OrbState.CONFIRMING -> Triple(MidnightColors.primary, MidnightColors.tertiary, MidnightColors.primary)
         OrbState.SPEAKING -> Triple(MidnightColors.tertiary, MidnightColors.secondary, MidnightColors.tertiary)
         OrbState.ERROR -> Triple(MidnightColors.error, MidnightColors.errorContainer, MidnightColors.error)
     }
