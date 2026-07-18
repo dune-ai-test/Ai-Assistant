@@ -35,6 +35,8 @@ data class AssistantSettings(
      *  the primary interaction. */
     val showTypingBar: Boolean = false,
     val totalTokensUsed: Long = 0L,
+    /** Empty = engine's own language-matched default voice. */
+    val ttsVoiceName: String = "",
     val systemPrompt: String = "You are a warm, concise voice assistant. Keep spoken replies short and natural."
 )
 
@@ -51,6 +53,7 @@ class SettingsStore(private val context: Context) {
         val CONFIRM_BEFORE_SEND_SECONDS = stringPreferencesKey("confirm_before_send_seconds")
         val SHOW_TYPING_BAR = stringPreferencesKey("show_typing_bar")
         val TOTAL_TOKENS_USED = stringPreferencesKey("total_tokens_used")
+        val TTS_VOICE_NAME = stringPreferencesKey("tts_voice_name")
         val SYSTEM_PROMPT = stringPreferencesKey("system_prompt")
         val CACHED_MODELS = stringPreferencesKey("cached_models_json")
     }
@@ -68,6 +71,7 @@ class SettingsStore(private val context: Context) {
                 ?: DEFAULT_CONFIRM_SEND_SECONDS,
             showTypingBar = (prefs[Keys.SHOW_TYPING_BAR] ?: "false").toBoolean(),
             totalTokensUsed = prefs[Keys.TOTAL_TOKENS_USED]?.toLongOrNull() ?: 0L,
+            ttsVoiceName = prefs[Keys.TTS_VOICE_NAME].orEmpty(),
             systemPrompt = prefs[Keys.SYSTEM_PROMPT]
                 ?: "You are a warm, concise voice assistant. Keep spoken replies short and natural."
         )
@@ -106,6 +110,10 @@ class SettingsStore(private val context: Context) {
 
     suspend fun saveShowTypingBar(enabled: Boolean) {
         context.dataStore.edit { it[Keys.SHOW_TYPING_BAR] = enabled.toString() }
+    }
+
+    suspend fun saveTtsVoiceName(name: String) {
+        context.dataStore.edit { it[Keys.TTS_VOICE_NAME] = name }
     }
 
     suspend fun saveSystemPrompt(prompt: String) {

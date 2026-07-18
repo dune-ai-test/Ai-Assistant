@@ -48,6 +48,7 @@ jobs:
         name: Release v${{ steps.version.outputs.version }}
         files: app/build/outputs/apk/release/*.apk
         generate_release_notes: true
+        force: true
 
     - name: Cleanup keystore
       if: always()

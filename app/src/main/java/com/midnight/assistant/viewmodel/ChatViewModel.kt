@@ -51,7 +51,8 @@ data class SettingsUiState(
     val testStatus: String? = null,
     val isTesting: Boolean = false,
     val backupStatus: String? = null,
-    val isBackupBusy: Boolean = false
+    val isBackupBusy: Boolean = false,
+    val availableVoices: List<TextToSpeechManager.VoiceOption> = emptyList()
 )
 
 data class HistoryUiState(
@@ -96,7 +97,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             settingsStore.settingsFlow.collect { settings ->
                 currentSettings = settings
                 _settingsState.value = _settingsState.value.copy(settings = settings)
+                textToSpeech.setVoice(settings.ttsVoiceName)
             }
+        }
+
+        textToSpeech.onReady = {
+            _settingsState.value = _settingsState.value.copy(availableVoices = textToSpeech.voices())
         }
 
         // Show whatever models were fetched last time immediately — no network round trip
@@ -436,6 +442,21 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun saveShowTypingBar(enabled: Boolean) =
         viewModelScope.launch { settingsStore.saveShowTypingBar(enabled) }
+
+    fun saveVoice(name: String) = viewModelScope.launch { settingsStore.saveTtsVoiceName(name) }
+
+    /** Speaks a short sample with the given voice without persisting it — lets the Settings
+     *  screen preview a voice before the user commits to it via the Save button. */
+    fun previewVoice(voiceName: String) {
+        val savedVoice = currentSettings.ttsVoiceName
+        textToSpeech.stop()
+        textToSpeech.setVoice(voiceName)
+        textToSpeech.speak("Hello, this is a preview of this voice.")
+        viewModelScope.launch {
+            delay(4000)
+            textToSpeech.setVoice(savedVoice)
+        }
+    }
 
     fun saveSystemPrompt(prompt: String) = viewModelScope.launch { settingsStore.saveSystemPrompt(prompt) }
 

@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -74,6 +75,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.midnight.assistant.data.GatewayModel
 import com.midnight.assistant.data.KiloDefaults
+import com.midnight.assistant.speech.TextToSpeechManager
 import com.midnight.assistant.ui.components.GlassCard
 import com.midnight.assistant.ui.theme.MidnightColors
 import com.midnight.assistant.ui.theme.MidnightRadius
@@ -112,6 +114,10 @@ fun SettingsScreen(
     var showTypingBar by remember(settingsState.settings.showTypingBar) {
         mutableStateOf(settingsState.settings.showTypingBar)
     }
+    var selectedVoiceName by remember(settingsState.settings.ttsVoiceName) {
+        mutableStateOf(settingsState.settings.ttsVoiceName)
+    }
+    var showVoicePicker by remember { mutableStateOf(false) }
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
@@ -305,6 +311,42 @@ fun SettingsScreen(
                         }
                     )
                     HorizontalDivider(color = MidnightColors.ghostBorder)
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Voice", style = MaterialTheme.typography.labelMedium, color = MidnightColors.onSurfaceVariant)
+                        Surface(
+                            onClick = { showVoicePicker = true },
+                            shape = MaterialTheme.shapes.small,
+                            color = MidnightColors.surfaceContainerLow.copy(alpha = 0.25f),
+                            border = BorderStroke(1.dp, MidnightColors.ghostBorderStrong),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                val selectedVoiceLabel = settingsState.availableVoices
+                                    .firstOrNull { it.name == selectedVoiceName }
+                                    ?.localeLabel
+                                val displayLabel = when {
+                                    selectedVoiceName.isBlank() -> "System default"
+                                    selectedVoiceLabel != null -> selectedVoiceLabel
+                                    else -> selectedVoiceName
+                                }
+                                Text(
+                                    displayLabel,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MidnightColors.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Icon(Icons.Filled.ArrowDropDown, contentDescription = "Choose voice", tint = MidnightColors.onSurfaceVariant)
+                            }
+                        }
+                    }
+                    HorizontalDivider(color = MidnightColors.ghostBorder)
                     SettingToggleRow(
                         title = "Allow voice interruption",
                         subtitle = "In Voice Mode, start talking while the assistant is speaking to interrupt it. " +
@@ -353,6 +395,20 @@ fun SettingsScreen(
                         }
                     )
                 }
+            }
+
+            if (showVoicePicker) {
+                VoicePickerDialog(
+                    voices = settingsState.availableVoices,
+                    currentVoiceName = selectedVoiceName,
+                    onDismiss = { showVoicePicker = false },
+                    onSelect = { name ->
+                        selectedVoiceName = name
+                        viewModel.saveVoice(name)
+                        showVoicePicker = false
+                    },
+                    onPreview = { name -> viewModel.previewVoice(name) }
+                )
             }
 
             // ---- Assistant behavior ----
@@ -664,6 +720,155 @@ private fun ModelPickerDialog(
             }
         }
     }
+}
+
+/**
+ * Searchable dialog for picking a device TTS voice, mirroring [ModelPickerDialog]'s pattern.
+ * Each row can be tapped to select it, or previewed via the speaker icon without selecting.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun VoicePickerDialog(
+    voices: List<TextToSpeechManager.VoiceOption>,
+    currentVoiceName: String,
+    onDismiss: () -> Unit,
+    onSelect: (String) -> Unit,
+    onPreview: (String) -> Unit
+) {
+    var query by remember { mutableStateOf("") }
+    val filtered = remember(voices, query) {
+        if (query.isBlank()) {
+            voices
+        } else {
+            voices.filter {
+                it.localeLabel.contains(query, ignoreCase = true) || it.name.contains(query, ignoreCase = true)
+            }
+        }
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(MidnightRadius.md),
+            color = MidnightColors.surfaceContainerHigh,
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.82f)
+        ) {
+            Column(modifier = Modifier.fillMaxSize().padding(20.dp)) {
+                Text("Select voice", style = MaterialTheme.typography.headlineMedium, color = MidnightColors.onSurface)
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = { Text("Search voices…") },
+                    singleLine = true,
+                    leadingIcon = {
+                        Icon(Icons.Filled.Search, contentDescription = null, tint = MidnightColors.onSurfaceVariant)
+                    },
+                    trailingIcon = {
+                        if (query.isNotEmpty()) {
+                            IconButton(onClick = { query = "" }) {
+                                Icon(Icons.Filled.Close, contentDescription = "Clear search", tint = MidnightColors.onSurfaceVariant)
+                            }
+                        }
+                    },
+                    colors = midnightFieldColors(),
+                    shape = MaterialTheme.shapes.small,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                if (voices.isEmpty()) {
+                    Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        Text(
+                            "No voices found on this device yet. This can take a moment right after the app starts.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MidnightColors.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 24.dp)
+                        )
+                    }
+                } else {
+                    LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                        item {
+                            VoiceRow(
+                                title = "System default",
+                                subtitle = "Uses your device's language-matched voice",
+                                selected = currentVoiceName.isBlank(),
+                                onSelect = { onSelect("") },
+                                onPreview = { onPreview("") }
+                            )
+                            HorizontalDivider(color = MidnightColors.ghostBorder)
+                        }
+                        if (filtered.isEmpty()) {
+                            item {
+                                Text(
+                                    "No voices match “$query”",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MidnightColors.onSurfaceVariant,
+                                    modifier = Modifier.padding(vertical = 16.dp)
+                                )
+                            }
+                        } else {
+                            items(filtered, key = { it.name }) { voice ->
+                                VoiceRow(
+                                    title = voice.localeLabel,
+                                    subtitle = qualityLabel(voice.quality) +
+                                        if (voice.isNetworkRequired) " · needs internet" else " · on-device",
+                                    selected = voice.name == currentVoiceName,
+                                    onSelect = { onSelect(voice.name) },
+                                    onPreview = { onPreview(voice.name) }
+                                )
+                                HorizontalDivider(color = MidnightColors.ghostBorder)
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+                TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) {
+                    Text("Close", color = MidnightColors.onSurfaceVariant)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun VoiceRow(
+    title: String,
+    subtitle: String,
+    selected: Boolean,
+    onSelect: () -> Unit,
+    onPreview: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onSelect() }
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge, color = MidnightColors.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, style = MaterialTheme.typography.labelMedium, color = MidnightColors.onSurfaceVariant)
+        }
+        IconButton(onClick = onPreview) {
+            Icon(Icons.Filled.VolumeUp, contentDescription = "Preview voice", tint = MidnightColors.tertiary)
+        }
+        if (selected) {
+            Icon(Icons.Filled.Check, contentDescription = "Selected", tint = MidnightColors.tertiary)
+        }
+    }
+}
+
+private fun qualityLabel(quality: Int): String = when {
+    quality >= 500 -> "Very high quality"
+    quality >= 400 -> "High quality"
+    quality >= 300 -> "Normal quality"
+    quality >= 200 -> "Low quality"
+    else -> "Basic quality"
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

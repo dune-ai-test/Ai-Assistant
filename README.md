@@ -98,10 +98,13 @@ the always-supported extras are used.
 ## Settings
 The Settings screen (redesigned, icon-labeled sections) covers:
 - **Connection** — API key, base URL, model picker (searchable dialog), fetch/test.
-- **Voice Mode** — speak-replies toggle, allow-interruption toggle, **review-before-sending**
-  (on/off + adjustable delay: 2/3/4/5/6/8s — the delay before a heard transcript is actually
-  sent, with a Cancel option), and **show typing bar** (off by default — Voice Mode via the
-  orb is the primary interaction; turn this on to get a text-entry fallback on the Chat screen).
+- **Voice Mode** — speak-replies toggle, a **voice picker** (every voice your device's TTS
+  engine offers, searchable, grouped by language, with a per-voice preview button and a
+  quality/on-device-vs-network badge — "System default" if you don't pick one), allow-
+  interruption toggle, **review-before-sending** (on/off + adjustable delay: 2/3/4/5/6/8s —
+  the delay before a heard transcript is actually sent, with a Cancel option), and **show
+  typing bar** (off by default — Voice Mode via the orb is the primary interaction; turn
+  this on to get a text-entry fallback on the Chat screen).
 - **Assistant behavior** — the system prompt.
 - **Usage** — cumulative token count across every request to Kilo Gateway (parsed from the
   API's own `usage.total_tokens`), with a Reset button.
