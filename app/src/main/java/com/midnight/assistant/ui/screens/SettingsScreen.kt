@@ -1,5 +1,7 @@
 package com.midnight.assistant.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -13,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -25,7 +28,13 @@ import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.DataUsage
+import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
@@ -36,6 +45,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
@@ -55,6 +65,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
@@ -68,6 +79,8 @@ import com.midnight.assistant.ui.theme.MidnightColors
 import com.midnight.assistant.ui.theme.MidnightRadius
 import com.midnight.assistant.ui.theme.MidnightSpacing
 import com.midnight.assistant.viewmodel.ChatViewModel
+
+private val CONFIRM_SECOND_OPTIONS = listOf(2, 3, 4, 5, 6, 8)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -85,10 +98,28 @@ fun SettingsScreen(
     var modelName by remember(settingsState.settings.modelDisplayName) { mutableStateOf(settingsState.settings.modelDisplayName) }
     var showKey by remember { mutableStateOf(false) }
     var showModelPicker by remember { mutableStateOf(false) }
+
     var autoSpeak by remember(settingsState.settings.autoSpeak) { mutableStateOf(settingsState.settings.autoSpeak) }
     var allowVoiceInterrupt by remember(settingsState.settings.allowVoiceInterrupt) {
         mutableStateOf(settingsState.settings.allowVoiceInterrupt)
     }
+    var confirmBeforeSend by remember(settingsState.settings.confirmBeforeSendEnabled) {
+        mutableStateOf(settingsState.settings.confirmBeforeSendEnabled)
+    }
+    var confirmSeconds by remember(settingsState.settings.confirmBeforeSendSeconds) {
+        mutableStateOf(settingsState.settings.confirmBeforeSendSeconds)
+    }
+    var showTypingBar by remember(settingsState.settings.showTypingBar) {
+        mutableStateOf(settingsState.settings.showTypingBar)
+    }
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri -> uri?.let { viewModel.exportConversations(it) } }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> uri?.let { viewModel.importConversations(it) } }
 
     Scaffold(
         containerColor = MidnightColors.background,
@@ -115,15 +146,12 @@ fun SettingsScreen(
         ) {
             Spacer(modifier = Modifier.height(4.dp))
 
-            SectionLabel("Kilo Gateway")
+            // ---- Connection ----
+            SectionLabel("Connection", Icons.Filled.VpnKey)
 
             GlassCard(modifier = Modifier.fillMaxWidth()) {
                 Column(verticalArrangement = Arrangement.spacedBy(MidnightSpacing.stackSm)) {
-                    Text(
-                        "API key",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MidnightColors.onSurfaceVariant
-                    )
+                    Text("API key", style = MaterialTheme.typography.labelMedium, color = MidnightColors.onSurfaceVariant)
                     OutlinedTextField(
                         value = apiKey,
                         onValueChange = { apiKey = it },
@@ -152,11 +180,7 @@ fun SettingsScreen(
                     )
 
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        "Base URL",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MidnightColors.onSurfaceVariant
-                    )
+                    Text("Base URL", style = MaterialTheme.typography.labelMedium, color = MidnightColors.onSurfaceVariant)
                     OutlinedTextField(
                         value = baseUrl,
                         onValueChange = { baseUrl = it },
@@ -168,11 +192,7 @@ fun SettingsScreen(
                     )
 
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        "Model",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MidnightColors.onSurfaceVariant
-                    )
+                    Text("Model", style = MaterialTheme.typography.labelMedium, color = MidnightColors.onSurfaceVariant)
 
                     Surface(
                         onClick = { showModelPicker = true },
@@ -207,11 +227,7 @@ fun SettingsScreen(
                                 }
                             }
                             Spacer(modifier = Modifier.width(8.dp))
-                            Icon(
-                                Icons.Filled.ArrowDropDown,
-                                contentDescription = "Choose model",
-                                tint = MidnightColors.onSurfaceVariant
-                            )
+                            Icon(Icons.Filled.ArrowDropDown, contentDescription = "Choose model", tint = MidnightColors.onSurfaceVariant)
                         }
                     }
 
@@ -228,10 +244,7 @@ fun SettingsScreen(
                         )
                     }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         TextButton(onClick = { viewModel.fetchModels(baseUrl, apiKey) }) {
                             if (settingsState.isLoadingModels) {
                                 CircularProgressIndicator(modifier = Modifier.height(16.dp), color = MidnightColors.tertiary, strokeWidth = 2.dp)
@@ -250,67 +263,100 @@ fun SettingsScreen(
                     settingsState.modelLoadError?.let {
                         Text(it, style = MaterialTheme.typography.bodyMedium, color = MidnightColors.error)
                     }
+
+                    settingsState.testStatus?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (it.startsWith("✓")) MidnightColors.tertiary else MidnightColors.error
+                        )
+                    }
+                    Button(
+                        onClick = { viewModel.testConnection(baseUrl, apiKey, modelId) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = MaterialTheme.shapes.large,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MidnightColors.surfaceContainerHigh,
+                            contentColor = MidnightColors.onSurface
+                        ),
+                        enabled = !settingsState.isTesting
+                    ) {
+                        if (settingsState.isTesting) {
+                            CircularProgressIndicator(modifier = Modifier.height(18.dp), color = MidnightColors.tertiary, strokeWidth = 2.dp)
+                        } else {
+                            Text("Test connection")
+                        }
+                    }
                 }
             }
 
+            // ---- Voice Mode ----
+            SectionLabel("Voice Mode", Icons.Filled.GraphicEq)
+
             GlassCard(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column {
-                        Text("Speak replies aloud", style = MaterialTheme.typography.bodyLarge, color = MidnightColors.onSurface)
-                        Text(
-                            "Automatically read assistant responses using text-to-speech",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MidnightColors.onSurfaceVariant
-                        )
-                    }
-                    Switch(
+                Column(verticalArrangement = Arrangement.spacedBy(MidnightSpacing.stackMd)) {
+                    SettingToggleRow(
+                        title = "Speak replies aloud",
+                        subtitle = "Automatically read assistant responses using text-to-speech",
                         checked = autoSpeak,
                         onCheckedChange = {
                             autoSpeak = it
                             viewModel.saveAutoSpeak(it)
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = MidnightColors.onPrimary,
-                            checkedTrackColor = MidnightColors.tertiary,
-                            uncheckedTrackColor = MidnightColors.surfaceContainerHigh
-                        )
+                        }
                     )
-                }
-            }
-
-            GlassCard(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Allow voice interruption", style = MaterialTheme.typography.bodyLarge, color = MidnightColors.onSurface)
-                        Text(
-                            "In Voice Mode, start talking while the assistant is speaking to interrupt it. " +
-                                "Best-effort — may occasionally misfire on speakerphone; turn off if it interrupts itself.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MidnightColors.onSurfaceVariant
-                        )
-                    }
-                    Switch(
+                    HorizontalDivider(color = MidnightColors.ghostBorder)
+                    SettingToggleRow(
+                        title = "Allow voice interruption",
+                        subtitle = "In Voice Mode, start talking while the assistant is speaking to interrupt it. " +
+                            "Best-effort — may occasionally misfire on speakerphone.",
                         checked = allowVoiceInterrupt,
                         onCheckedChange = {
                             allowVoiceInterrupt = it
                             viewModel.saveAllowVoiceInterrupt(it)
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = MidnightColors.onPrimary,
-                            checkedTrackColor = MidnightColors.tertiary,
-                            uncheckedTrackColor = MidnightColors.surfaceContainerHigh
-                        )
+                        }
+                    )
+                    HorizontalDivider(color = MidnightColors.ghostBorder)
+                    SettingToggleRow(
+                        title = "Review before sending",
+                        subtitle = "Show what was heard for a few seconds, with a chance to cancel, before it's sent.",
+                        checked = confirmBeforeSend,
+                        onCheckedChange = {
+                            confirmBeforeSend = it
+                            viewModel.saveConfirmBeforeSendEnabled(it)
+                        }
+                    )
+                    if (confirmBeforeSend) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            CONFIRM_SECOND_OPTIONS.forEach { seconds ->
+                                SecondsChip(
+                                    seconds = seconds,
+                                    selected = confirmSeconds == seconds,
+                                    onClick = {
+                                        confirmSeconds = seconds
+                                        viewModel.saveConfirmBeforeSendSeconds(seconds)
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    HorizontalDivider(color = MidnightColors.ghostBorder)
+                    SettingToggleRow(
+                        title = "Show typing bar",
+                        subtitle = "A text field on the Chat screen as a fallback/alternative to voice. Off by default.",
+                        checked = showTypingBar,
+                        onCheckedChange = {
+                            showTypingBar = it
+                            viewModel.saveShowTypingBar(it)
+                        }
                     )
                 }
             }
 
-            SectionLabel("Assistant behavior")
+            // ---- Assistant behavior ----
+            SectionLabel("Assistant behavior", Icons.Filled.Psychology)
             GlassCard(modifier = Modifier.fillMaxWidth()) {
                 Column(verticalArrangement = Arrangement.spacedBy(MidnightSpacing.stackSm)) {
                     Text("System prompt", style = MaterialTheme.typography.labelMedium, color = MidnightColors.onSurfaceVariant)
@@ -325,51 +371,94 @@ fun SettingsScreen(
                 }
             }
 
-            settingsState.testStatus?.let {
-                Text(
-                    it,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (it.startsWith("✓")) MidnightColors.tertiary else MidnightColors.error
-                )
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(MidnightSpacing.stackSm)
-            ) {
-                Button(
-                    onClick = { viewModel.testConnection(baseUrl, apiKey, modelId) },
-                    modifier = Modifier.weight(1f),
-                    shape = MaterialTheme.shapes.large,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MidnightColors.surfaceContainerHigh,
-                        contentColor = MidnightColors.onSurface
-                    ),
-                    enabled = !settingsState.isTesting
+            // ---- Usage ----
+            SectionLabel("Usage", Icons.Filled.DataUsage)
+            GlassCard(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (settingsState.isTesting) {
-                        CircularProgressIndicator(modifier = Modifier.height(18.dp), color = MidnightColors.tertiary, strokeWidth = 2.dp)
-                    } else {
-                        Text("Test connection")
+                    Column {
+                        Text("Total tokens used", style = MaterialTheme.typography.bodyLarge, color = MidnightColors.onSurface)
+                        Text(
+                            formatTokenCount(settingsState.settings.totalTokensUsed),
+                            style = MaterialTheme.typography.headlineMedium,
+                            color = MidnightColors.primary
+                        )
+                    }
+                    TextButton(onClick = { viewModel.resetTokensUsed() }) {
+                        Text("Reset", color = MidnightColors.onSurfaceVariant)
                     }
                 }
-                Button(
-                    onClick = {
-                        viewModel.saveApiKey(apiKey)
-                        viewModel.saveBaseUrl(baseUrl.ifBlank { KiloDefaults.BASE_URL })
-                        viewModel.saveModel(modelId.ifBlank { KiloDefaults.MODEL }, modelName.ifBlank { KiloDefaults.MODEL })
-                        viewModel.saveSystemPrompt(systemPrompt)
-                        onBack()
-                    },
-                    modifier = Modifier.weight(1f),
-                    shape = MaterialTheme.shapes.large,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MidnightColors.tertiary,
-                        contentColor = MidnightColors.onTertiary
+            }
+
+            // ---- Backup & Restore ----
+            SectionLabel("Backup & restore", Icons.Filled.FileUpload)
+            GlassCard(modifier = Modifier.fillMaxWidth()) {
+                Column(verticalArrangement = Arrangement.spacedBy(MidnightSpacing.stackSm)) {
+                    Text(
+                        "Export every conversation to a file you can keep or move to another device, or " +
+                            "import a previously exported file back in.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MidnightColors.onSurfaceVariant
                     )
-                ) {
-                    Text("Save")
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(MidnightSpacing.stackSm)
+                    ) {
+                        OutlinedButton(
+                            onClick = { exportLauncher.launch("solace-backup.json") },
+                            modifier = Modifier.weight(1f),
+                            shape = MaterialTheme.shapes.large,
+                            enabled = !settingsState.isBackupBusy,
+                            border = BorderStroke(1.dp, MidnightColors.ghostBorderStrong)
+                        ) {
+                            Icon(Icons.Filled.FileUpload, contentDescription = null, tint = MidnightColors.tertiary, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Export", color = MidnightColors.onSurface)
+                        }
+                        OutlinedButton(
+                            onClick = { importLauncher.launch(arrayOf("application/json", "*/*")) },
+                            modifier = Modifier.weight(1f),
+                            shape = MaterialTheme.shapes.large,
+                            enabled = !settingsState.isBackupBusy,
+                            border = BorderStroke(1.dp, MidnightColors.ghostBorderStrong)
+                        ) {
+                            Icon(Icons.Filled.FileDownload, contentDescription = null, tint = MidnightColors.tertiary, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Import", color = MidnightColors.onSurface)
+                        }
+                    }
+                    if (settingsState.isBackupBusy) {
+                        CircularProgressIndicator(modifier = Modifier.height(16.dp), color = MidnightColors.tertiary, strokeWidth = 2.dp)
+                    }
+                    settingsState.backupStatus?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (it.startsWith("✓")) MidnightColors.tertiary else MidnightColors.onSurfaceVariant
+                        )
+                    }
                 }
+            }
+
+            Button(
+                onClick = {
+                    viewModel.saveApiKey(apiKey)
+                    viewModel.saveBaseUrl(baseUrl.ifBlank { KiloDefaults.BASE_URL })
+                    viewModel.saveModel(modelId.ifBlank { KiloDefaults.MODEL }, modelName.ifBlank { KiloDefaults.MODEL })
+                    viewModel.saveSystemPrompt(systemPrompt)
+                    onBack()
+                },
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.large,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MidnightColors.tertiary,
+                    contentColor = MidnightColors.onTertiary
+                )
+            ) {
+                Text("Save")
             }
 
             Spacer(modifier = Modifier.height(MidnightSpacing.stackLg))
@@ -378,12 +467,74 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun SectionLabel(text: String) {
-    Text(
-        text = text.uppercase(),
-        style = MaterialTheme.typography.labelMedium,
-        color = MidnightColors.onSurfaceVariant
-    )
+private fun SectionLabel(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, contentDescription = null, tint = MidnightColors.primary, modifier = Modifier.size(15.dp))
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = text.uppercase(),
+            style = MaterialTheme.typography.labelMedium,
+            color = MidnightColors.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun SettingToggleRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge, color = MidnightColors.onSurface)
+            Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MidnightColors.onSurfaceVariant)
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = MidnightColors.onPrimary,
+                checkedTrackColor = MidnightColors.tertiary,
+                uncheckedTrackColor = MidnightColors.surfaceContainerHigh
+            )
+        )
+    }
+}
+
+@Composable
+private fun SecondsChip(seconds: Int, selected: Boolean, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(MidnightRadius.full),
+        color = if (selected) MidnightColors.tertiary else MidnightColors.surfaceContainerLow.copy(alpha = 0.4f),
+        border = BorderStroke(1.dp, if (selected) MidnightColors.tertiary else MidnightColors.ghostBorderStrong)
+    ) {
+        Text(
+            "${seconds}s",
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.labelMedium,
+            color = if (selected) MidnightColors.onTertiary else MidnightColors.onSurfaceVariant,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+        )
+    }
+}
+
+private fun formatTokenCount(count: Long): String {
+    val s = count.toString()
+    val sb = StringBuilder()
+    for (i in s.indices) {
+        val posFromEnd = s.length - i
+        sb.append(s[i])
+        if (posFromEnd > 1 && posFromEnd % 3 == 1) sb.append(',')
+    }
+    return sb.toString()
 }
 
 /**

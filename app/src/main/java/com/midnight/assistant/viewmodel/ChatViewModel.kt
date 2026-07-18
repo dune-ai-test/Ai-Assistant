@@ -1,6 +1,7 @@
 package com.midnight.assistant.viewmodel
 
 import android.app.Application
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.midnight.assistant.data.AssistantSettings
@@ -15,6 +16,7 @@ import com.midnight.assistant.data.SettingsStore
 import com.midnight.assistant.speech.ContinuousSpeechRecognizer
 import com.midnight.assistant.speech.MicActivityMonitor
 import com.midnight.assistant.speech.TextToSpeechManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,6 +24,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 enum class OrbState { IDLE, LISTENING, THINKING, SPEAKING, CONFIRMING, ERROR }
 
@@ -45,7 +48,9 @@ data class SettingsUiState(
     val isLoadingModels: Boolean = false,
     val modelLoadError: String? = null,
     val testStatus: String? = null,
-    val isTesting: Boolean = false
+    val isTesting: Boolean = false,
+    val backupStatus: String? = null,
+    val isBackupBusy: Boolean = false
 )
 
 data class HistoryUiState(
@@ -60,12 +65,6 @@ data class HistoryUiState(
  * Mode or taps the orb while the assistant is talking to interrupt it (barge-in).
  */
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
-
-    companion object {
-        /** How long a heard transcript sits on screen for review before it's actually sent
-         *  — long enough to read and tap Cancel if the recognizer misheard something. */
-        private const val PENDING_SEND_SECONDS = 4
-    }
 
     private val settingsStore = SettingsStore(application)
     private val gatewayClient = KiloGatewayClient()
@@ -132,7 +131,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             _chatState.value = _chatState.value.copy(liveTranscript = partial)
         }
         speechRecognizer.onFinalResult = { text ->
-            beginPendingSend(text)
+            if (currentSettings.confirmBeforeSendEnabled) {
+                beginPendingSend(text)
+            } else {
+                _chatState.value = _chatState.value.copy(liveTranscript = "")
+                sendUserMessage(text)
+            }
         }
         speechRecognizer.onNoSpeechDetected = {
             _chatState.value = _chatState.value.copy(liveTranscript = "")
@@ -181,7 +185,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     // ---- Voice Mode ----
 
-    /** Single entry point the orb/mic button calls. Behavior depends on current state:
+    /** Single entry point the orb calls when tapped. Behavior depends on current state:
      *  off -> start; speaking -> interrupt (barge-in); confirming -> cancel the pending
      *  send; otherwise -> end Voice Mode. */
     fun onOrbTapped() {
@@ -194,20 +198,23 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** A turn was heard — instead of sending immediately, show it for [PENDING_SEND_SECONDS]
-     *  so a misheard sentence can be caught and cancelled before it actually goes out. */
+    /** A turn was heard — instead of sending immediately, show it for a few seconds (see
+     *  [AssistantSettings.confirmBeforeSendSeconds]) so a misheard sentence can be caught
+     *  and cancelled before it actually goes out. Skipped entirely if the user has turned
+     *  "Review before sending" off in Settings. */
     private fun beginPendingSend(text: String) {
         pendingSendJob?.cancel()
+        val totalSeconds = currentSettings.confirmBeforeSendSeconds.coerceAtLeast(1)
         _chatState.value = _chatState.value.copy(
             orbState = OrbState.CONFIRMING,
             liveTranscript = "",
             pendingTranscript = text,
-            pendingSecondsLeft = PENDING_SEND_SECONDS,
+            pendingSecondsLeft = totalSeconds,
             statusText = "Did I get that right?",
             errorText = null
         )
         pendingSendJob = viewModelScope.launch {
-            for (secondsLeft in PENDING_SEND_SECONDS downTo 1) {
+            for (secondsLeft in totalSeconds downTo 1) {
                 _chatState.value = _chatState.value.copy(pendingSecondsLeft = secondsLeft)
                 delay(1000)
             }
@@ -323,7 +330,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
             when (result) {
                 is GatewayResult.Success -> {
-                    val assistantMessage = ChatMessage(role = Role.ASSISTANT, text = result.value)
+                    val replyText = result.value.text
+                    result.value.totalTokens?.let { settingsStore.addTokensUsed(it) }
+
+                    val assistantMessage = ChatMessage(role = Role.ASSISTANT, text = replyText)
                     val finalHistory = _chatState.value.messages + assistantMessage
                     // Always speak while Voice Mode is active (that's the whole point of it);
                     // otherwise respect the general "speak replies aloud" setting.
@@ -335,7 +345,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     )
                     persistCurrentSession(finalHistory)
                     if (shouldSpeak) {
-                        textToSpeech.speak(result.value)
+                        textToSpeech.speak(replyText)
                     }
                 }
                 is GatewayResult.Failure -> {
@@ -417,7 +427,18 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun saveAllowVoiceInterrupt(enabled: Boolean) =
         viewModelScope.launch { settingsStore.saveAllowVoiceInterrupt(enabled) }
 
+    fun saveConfirmBeforeSendEnabled(enabled: Boolean) =
+        viewModelScope.launch { settingsStore.saveConfirmBeforeSendEnabled(enabled) }
+
+    fun saveConfirmBeforeSendSeconds(seconds: Int) =
+        viewModelScope.launch { settingsStore.saveConfirmBeforeSendSeconds(seconds) }
+
+    fun saveShowTypingBar(enabled: Boolean) =
+        viewModelScope.launch { settingsStore.saveShowTypingBar(enabled) }
+
     fun saveSystemPrompt(prompt: String) = viewModelScope.launch { settingsStore.saveSystemPrompt(prompt) }
+
+    fun resetTokensUsed() = viewModelScope.launch { settingsStore.resetTokensUsed() }
 
     fun fetchModels(baseUrlOverride: String? = null, apiKeyOverride: String? = null) {
         viewModelScope.launch {
@@ -460,11 +481,66 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             _settingsState.value = when (result) {
                 is GatewayResult.Success -> _settingsState.value.copy(
                     isTesting = false,
-                    testStatus = "✓ Connected — ${result.value.take(80)}"
+                    testStatus = "✓ Connected — ${result.value.text.take(80)}"
                 )
                 is GatewayResult.Failure -> _settingsState.value.copy(
                     isTesting = false,
                     testStatus = "✗ ${result.message}"
+                )
+            }
+        }
+    }
+
+    // ---- Backup & restore (all conversations) ----
+
+    fun exportConversations(destination: Uri) {
+        viewModelScope.launch {
+            _settingsState.value = _settingsState.value.copy(isBackupBusy = true, backupStatus = "Exporting…")
+            try {
+                val json = historyStore.exportAllToJson()
+                withContext(Dispatchers.IO) {
+                    val resolver = getApplication<Application>().contentResolver
+                    val stream = resolver.openOutputStream(destination)
+                        ?: throw IllegalStateException("Couldn't open the selected file for writing.")
+                    stream.use { it.write(json.toByteArray(Charsets.UTF_8)) }
+                }
+                _settingsState.value = _settingsState.value.copy(
+                    isBackupBusy = false,
+                    backupStatus = "✓ Exported successfully"
+                )
+            } catch (t: Throwable) {
+                _settingsState.value = _settingsState.value.copy(
+                    isBackupBusy = false,
+                    backupStatus = "✗ Export failed: ${t.message ?: "unknown error"}"
+                )
+            }
+        }
+    }
+
+    fun importConversations(source: Uri) {
+        viewModelScope.launch {
+            _settingsState.value = _settingsState.value.copy(isBackupBusy = true, backupStatus = "Importing…")
+            try {
+                val text = withContext(Dispatchers.IO) {
+                    val resolver = getApplication<Application>().contentResolver
+                    val stream = resolver.openInputStream(source)
+                        ?: throw IllegalStateException("Couldn't open the selected file for reading.")
+                    stream.bufferedReader().use { it.readText() }
+                }
+                val count = historyStore.importAllFromJson(text)
+                _settingsState.value = _settingsState.value.copy(
+                    isBackupBusy = false,
+                    backupStatus = if (count > 0) {
+                        "✓ Imported $count conversation${if (count == 1) "" else "s"}"
+                    } else {
+                        "No conversations found in that file."
+                    }
+                )
+                refreshHistory()
+            } catch (t: Throwable) {
+                _settingsState.value = _settingsState.value.copy(
+                    isBackupBusy = false,
+                    backupStatus = "✗ Import failed: ${t.message ?: "invalid file"}"
                 )
             }
         }

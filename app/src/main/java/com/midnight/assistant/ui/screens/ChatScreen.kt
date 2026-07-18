@@ -3,6 +3,7 @@ package com.midnight.assistant.ui.screens
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,8 +25,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
@@ -49,6 +48,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
@@ -74,6 +74,7 @@ fun ChatScreen(
 ) {
     val context = LocalContext.current
     val state by viewModel.chatState.collectAsState()
+    val settingsState by viewModel.settingsState.collectAsState()
     val listState = rememberLazyListState()
 
     var typedText by remember { mutableStateOf("") }
@@ -113,7 +114,7 @@ fun ChatScreen(
         }
     }
 
-    fun onMicTapped() {
+    fun onOrbTapped() {
         if (!hasMicPermission) {
             permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         } else {
@@ -223,7 +224,9 @@ fun ChatScreen(
                     }
                 }
 
-                // Orb + status + mic control, anchored toward the bottom of the screen
+                // Orb + status, anchored toward the bottom of the screen. The orb itself is
+                // the mic control now — tap it to start Voice Mode, tap again to interrupt
+                // or end it, no separate mic button.
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -239,11 +242,17 @@ fun ChatScreen(
                         )
                     }
 
-                    AiOrb(
-                        state = state.orbState,
-                        micLevel = state.micLevel,
+                    Box(
                         modifier = Modifier
-                    )
+                            .clip(CircleShape)
+                            .clickable { onOrbTapped() }
+                    ) {
+                        AiOrb(
+                            state = state.orbState,
+                            micLevel = state.micLevel,
+                            modifier = Modifier
+                        )
+                    }
 
                     Spacer(modifier = Modifier.height(MidnightSpacing.stackSm))
 
@@ -314,16 +323,11 @@ fun ChatScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(MidnightSpacing.stackMd))
+                    // Typed-message row — off by default (Settings > "Show typing bar"),
+                    // since Voice Mode via the orb is the primary interaction.
+                    if (settingsState.settings.showTypingBar) {
+                        Spacer(modifier = Modifier.height(MidnightSpacing.stackMd))
 
-                    // Typed-message row — always available as a fallback/alternative to voice.
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = MidnightSpacing.marginMobile),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(MidnightSpacing.stackSm)
-                    ) {
                         val isBusy = state.orbState == OrbState.LISTENING ||
                             state.orbState == OrbState.THINKING ||
                             state.orbState == OrbState.CONFIRMING
@@ -331,7 +335,9 @@ fun ChatScreen(
                         OutlinedTextField(
                             value = typedText,
                             onValueChange = { typedText = it },
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = MidnightSpacing.marginMobile),
                             placeholder = { Text("Type a message…") },
                             enabled = !isBusy,
                             singleLine = true,
@@ -359,42 +365,6 @@ fun ChatScreen(
                                 unfocusedPlaceholderColor = MidnightColors.onSurfaceVariant
                             )
                         )
-
-                        Box(
-                            modifier = Modifier
-                                .size(56.dp)
-                                .background(
-                                    brush = Brush.linearGradient(
-                                        colors = if (state.isVoiceModeActive) {
-                                            listOf(MidnightColors.error, MidnightColors.errorContainer)
-                                        } else {
-                                            listOf(MidnightColors.tertiary, MidnightColors.secondary)
-                                        }
-                                    ),
-                                    shape = CircleShape
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            IconButton(
-                                onClick = { onMicTapped() },
-                                modifier = Modifier.size(56.dp)
-                            ) {
-                                Icon(
-                                    imageVector = if (state.isVoiceModeActive) Icons.Filled.MicOff else Icons.Filled.Mic,
-                                    contentDescription = if (state.isVoiceModeActive) {
-                                        when (state.orbState) {
-                                            OrbState.SPEAKING -> "Interrupt"
-                                            OrbState.CONFIRMING -> "Cancel"
-                                            else -> "End Voice Mode"
-                                        }
-                                    } else {
-                                        "Start Voice Mode"
-                                    },
-                                    tint = MidnightColors.onPrimary,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
-                        }
                     }
                 }
             }

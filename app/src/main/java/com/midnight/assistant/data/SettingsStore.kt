@@ -18,6 +18,8 @@ object KiloDefaults {
     const val MODEL = "anthropic/claude-sonnet-4.5"
 }
 
+const val DEFAULT_CONFIRM_SEND_SECONDS = 4
+
 data class AssistantSettings(
     val apiKey: String = "",
     val baseUrl: String = KiloDefaults.BASE_URL,
@@ -25,6 +27,14 @@ data class AssistantSettings(
     val modelDisplayName: String = KiloDefaults.MODEL,
     val autoSpeak: Boolean = true,
     val allowVoiceInterrupt: Boolean = true,
+    /** "Review before sending" — show a heard transcript for a few seconds with a
+     *  Cancel/Send now option before it actually goes out. */
+    val confirmBeforeSendEnabled: Boolean = true,
+    val confirmBeforeSendSeconds: Int = DEFAULT_CONFIRM_SEND_SECONDS,
+    /** The typed-message fallback row on the Chat screen — off by default; Voice Mode is
+     *  the primary interaction. */
+    val showTypingBar: Boolean = false,
+    val totalTokensUsed: Long = 0L,
     val systemPrompt: String = "You are a warm, concise voice assistant. Keep spoken replies short and natural."
 )
 
@@ -37,6 +47,10 @@ class SettingsStore(private val context: Context) {
         val MODEL_NAME = stringPreferencesKey("model_name")
         val AUTO_SPEAK = stringPreferencesKey("auto_speak")
         val ALLOW_VOICE_INTERRUPT = stringPreferencesKey("allow_voice_interrupt")
+        val CONFIRM_BEFORE_SEND_ENABLED = stringPreferencesKey("confirm_before_send_enabled")
+        val CONFIRM_BEFORE_SEND_SECONDS = stringPreferencesKey("confirm_before_send_seconds")
+        val SHOW_TYPING_BAR = stringPreferencesKey("show_typing_bar")
+        val TOTAL_TOKENS_USED = stringPreferencesKey("total_tokens_used")
         val SYSTEM_PROMPT = stringPreferencesKey("system_prompt")
         val CACHED_MODELS = stringPreferencesKey("cached_models_json")
     }
@@ -49,6 +63,11 @@ class SettingsStore(private val context: Context) {
             modelDisplayName = prefs[Keys.MODEL_NAME] ?: (prefs[Keys.MODEL_ID] ?: KiloDefaults.MODEL),
             autoSpeak = (prefs[Keys.AUTO_SPEAK] ?: "true").toBoolean(),
             allowVoiceInterrupt = (prefs[Keys.ALLOW_VOICE_INTERRUPT] ?: "true").toBoolean(),
+            confirmBeforeSendEnabled = (prefs[Keys.CONFIRM_BEFORE_SEND_ENABLED] ?: "true").toBoolean(),
+            confirmBeforeSendSeconds = prefs[Keys.CONFIRM_BEFORE_SEND_SECONDS]?.toIntOrNull()
+                ?: DEFAULT_CONFIRM_SEND_SECONDS,
+            showTypingBar = (prefs[Keys.SHOW_TYPING_BAR] ?: "false").toBoolean(),
+            totalTokensUsed = prefs[Keys.TOTAL_TOKENS_USED]?.toLongOrNull() ?: 0L,
             systemPrompt = prefs[Keys.SYSTEM_PROMPT]
                 ?: "You are a warm, concise voice assistant. Keep spoken replies short and natural."
         )
@@ -77,8 +96,32 @@ class SettingsStore(private val context: Context) {
         context.dataStore.edit { it[Keys.ALLOW_VOICE_INTERRUPT] = enabled.toString() }
     }
 
+    suspend fun saveConfirmBeforeSendEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[Keys.CONFIRM_BEFORE_SEND_ENABLED] = enabled.toString() }
+    }
+
+    suspend fun saveConfirmBeforeSendSeconds(seconds: Int) {
+        context.dataStore.edit { it[Keys.CONFIRM_BEFORE_SEND_SECONDS] = seconds.toString() }
+    }
+
+    suspend fun saveShowTypingBar(enabled: Boolean) {
+        context.dataStore.edit { it[Keys.SHOW_TYPING_BAR] = enabled.toString() }
+    }
+
     suspend fun saveSystemPrompt(prompt: String) {
         context.dataStore.edit { it[Keys.SYSTEM_PROMPT] = prompt }
+    }
+
+    suspend fun addTokensUsed(count: Int) {
+        if (count <= 0) return
+        context.dataStore.edit {
+            val current = it[Keys.TOTAL_TOKENS_USED]?.toLongOrNull() ?: 0L
+            it[Keys.TOTAL_TOKENS_USED] = (current + count).toString()
+        }
+    }
+
+    suspend fun resetTokensUsed() {
+        context.dataStore.edit { it[Keys.TOTAL_TOKENS_USED] = "0" }
     }
 
     /** Persists the last-fetched model list so Settings shows it immediately on next open,

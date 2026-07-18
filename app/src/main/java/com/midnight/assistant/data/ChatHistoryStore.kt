@@ -132,6 +132,79 @@ class ChatHistoryStore(context: Context) {
         Unit
     }
 
+    /** Bundles every conversation (including the currently-open one) into a single JSON
+     *  document suitable for writing to a user-picked file via Storage Access Framework. */
+    suspend fun exportAllToJson(): String = withContext(Dispatchers.IO) {
+        val index = readIndex()
+        val sessionMetas = index.optJSONArray("sessions") ?: JSONArray()
+        val exportSessions = JSONArray()
+
+        for (i in 0 until sessionMetas.length()) {
+            val meta = sessionMetas.optJSONObject(i) ?: continue
+            val id = meta.optString("id").takeIf { it.isNotBlank() } ?: continue
+            val messagesFile = File(rootDir, "$id.json")
+            val messagesArray = if (messagesFile.exists()) {
+                try {
+                    JSONArray(messagesFile.readText())
+                } catch (t: Throwable) {
+                    JSONArray()
+                }
+            } else {
+                JSONArray()
+            }
+            exportSessions.put(
+                JSONObject().apply {
+                    put("id", id)
+                    put("title", meta.optString("title", "Conversation"))
+                    put("createdAt", meta.optLong("createdAt", System.currentTimeMillis()))
+                    put("updatedAt", meta.optLong("updatedAt", System.currentTimeMillis()))
+                    put("messages", messagesArray)
+                }
+            )
+        }
+
+        JSONObject().apply {
+            put("app", "Solace")
+            put("exportFormatVersion", 1)
+            put("exportedAt", System.currentTimeMillis())
+            put("sessions", exportSessions)
+        }.toString(2)
+    }
+
+    /** Imports a JSON document produced by [exportAllToJson]. Imported sessions get fresh
+     *  ids so they're added alongside existing history rather than overwriting it. Returns
+     *  the number of sessions imported. */
+    suspend fun importAllFromJson(json: String): Int = withContext(Dispatchers.IO) {
+        val root = JSONObject(json)
+        val sessions = root.optJSONArray("sessions") ?: return@withContext 0
+        val index = readIndex()
+        var imported = 0
+
+        for (i in 0 until sessions.length()) {
+            val session = sessions.optJSONObject(i) ?: continue
+            val messages = session.optJSONArray("messages") ?: JSONArray()
+            if (messages.length() == 0) continue
+
+            val newId = UUID.randomUUID().toString()
+            File(rootDir, "$newId.json").writeText(messages.toString())
+
+            val originalTitle = session.optString("title", "Imported conversation")
+            upsertSessionMeta(
+                index,
+                newId,
+                title = if (originalTitle.endsWith("(imported)")) originalTitle else "$originalTitle (imported)",
+                messageCount = messages.length(),
+                bumpUpdatedAt = true
+            )
+            imported++
+        }
+
+        if (imported > 0) {
+            writeIndex(index)
+        }
+        imported
+    }
+
     // ---- internal helpers ----
 
     private fun readIndex(): JSONObject {

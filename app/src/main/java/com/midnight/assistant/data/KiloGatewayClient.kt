@@ -11,6 +11,10 @@ import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
+/** Result of one chat-completion call: the reply text plus token usage if the gateway
+ *  reported it (used to track cumulative usage in Settings). */
+data class ChatCompletionResult(val text: String, val totalTokens: Int?)
+
 /**
  * Thin client for Kilo Gateway (https://kilo.ai/gateway), an OpenAI-compatible
  * routing layer in front of 500+ models. Two endpoints are used:
@@ -60,7 +64,7 @@ class KiloGatewayClient {
         model: String,
         systemPrompt: String,
         history: List<ChatMessage>
-    ): GatewayResult<String> = withContext(Dispatchers.IO) {
+    ): GatewayResult<ChatCompletionResult> = withContext(Dispatchers.IO) {
         if (apiKey.isBlank()) return@withContext GatewayResult.Failure("Add your Kilo Gateway API key in Settings first.")
         try {
             val messages = JSONArray()
@@ -99,7 +103,7 @@ class KiloGatewayClient {
                 }
                 val reply = parseChatReply(bodyString)
                     ?: return@withContext GatewayResult.Failure("The gateway returned an empty response.")
-                GatewayResult.Success(reply)
+                GatewayResult.Success(ChatCompletionResult(text = reply, totalTokens = parseTotalTokens(bodyString)))
             }
         } catch (io: IOException) {
             GatewayResult.Failure(io.message ?: "Network error while contacting Kilo Gateway.")
@@ -115,6 +119,16 @@ class KiloGatewayClient {
             if (choices.length() == 0) return null
             val message = choices.getJSONObject(0).optJSONObject("message") ?: return null
             message.optString("content").takeIf { it.isNotBlank() }
+        } catch (t: Throwable) {
+            null
+        }
+    }
+
+    private fun parseTotalTokens(body: String): Int? {
+        return try {
+            val json = JSONObject(body)
+            val usage = json.optJSONObject("usage") ?: return null
+            usage.optInt("total_tokens", -1).takeIf { it >= 0 }
         } catch (t: Throwable) {
             null
         }

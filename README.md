@@ -83,9 +83,9 @@ loop, not a "hold to talk" or "tap per sentence" interaction:
    output and mic input — so it can occasionally misfire on speakerphone. Turn it off in
    Settings ("Allow voice interruption") if that happens; manually tapping the orb to
    interrupt always works regardless.
-6. Tap **"End Voice Mode"** (or the mic button while it's your turn to talk) to leave the
-   loop entirely. Typing in the message field works identically at any time as a
-   fallback/alternative to voice.
+6. Tap the orb again while it's your turn to talk (or the **"End Voice Mode"** text button)
+   to leave the loop entirely. There's no separate mic button — the orb itself is the
+   start/stop/interrupt control.
 
 Why this isn't the "tap mic → get one system dialog" approach from an earlier iteration:
 that one-shot system dialog is reliable but is fundamentally modal — there's no way to
@@ -94,6 +94,21 @@ continuous Voice Mode requires driving `SpeechRecognizer` directly, restarting i
 each turn. The earlier reliability problems with that API came from custom silence-length
 intent extras that some OEM recognizers mishandle; those have been removed here, and only
 the always-supported extras are used.
+
+## Settings
+The Settings screen (redesigned, icon-labeled sections) covers:
+- **Connection** — API key, base URL, model picker (searchable dialog), fetch/test.
+- **Voice Mode** — speak-replies toggle, allow-interruption toggle, **review-before-sending**
+  (on/off + adjustable delay: 2/3/4/5/6/8s — the delay before a heard transcript is actually
+  sent, with a Cancel option), and **show typing bar** (off by default — Voice Mode via the
+  orb is the primary interaction; turn this on to get a text-entry fallback on the Chat screen).
+- **Assistant behavior** — the system prompt.
+- **Usage** — cumulative token count across every request to Kilo Gateway (parsed from the
+  API's own `usage.total_tokens`), with a Reset button.
+- **Backup & restore** — **Export** writes every conversation (all sessions, all messages) to
+  a JSON file you pick via Android's file picker; **Import** reads one back in. Imported
+  conversations get fresh ids and are added alongside existing history (titled "… (imported)")
+  rather than overwriting anything.
 
 ## Voice pipeline
 - **Speech-to-text**: `speech/ContinuousSpeechRecognizer.kt` wraps `SpeechRecognizer` for
