@@ -11,8 +11,8 @@ android {
         applicationId = "com.midnight.assistant"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 6
+        versionName = "1.0.5"
 
         vectorDrawables {
             useSupportLibrary = true
