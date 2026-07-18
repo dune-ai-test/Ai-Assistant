@@ -16,6 +16,7 @@ import com.midnight.assistant.data.SettingsStore
 import com.midnight.assistant.speech.ContinuousSpeechRecognizer
 import com.midnight.assistant.speech.MicActivityMonitor
 import com.midnight.assistant.speech.TextToSpeechManager
+import com.midnight.assistant.util.markdownToPlainText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -345,7 +346,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     )
                     persistCurrentSession(finalHistory)
                     if (shouldSpeak) {
-                        textToSpeech.speak(replyText)
+                        textToSpeech.speak(markdownToPlainText(replyText))
                     }
                 }
                 is GatewayResult.Failure -> {

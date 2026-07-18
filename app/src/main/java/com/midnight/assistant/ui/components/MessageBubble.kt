@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -26,7 +25,7 @@ fun MessageBubble(message: ChatMessage, modifier: Modifier = Modifier) {
             cornerRadius = MidnightRadius.md,
             contentPadding = 16.dp
         ) {
-            Text(
+            MarkdownText(
                 text = message.text,
                 style = MaterialTheme.typography.bodyLarge,
                 color = if (isUser) MidnightColors.onSurface else MidnightColors.onSurface.copy(alpha = 0.92f)
